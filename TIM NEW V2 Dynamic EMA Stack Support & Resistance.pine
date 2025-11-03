@@ -1,0 +1,2639 @@
+//@version=6
+indicator("🔴 TIM NEW V2 Dynamic EMA Stack Support & Resistance", "🔴 EMA S/R", max_labels_count = 500, max_bars_back=5000, overlay=true, calc_bars_count=6000)
+
+_display = display.none
+//──────────────────────────────────────────────────
+// 📌 Notes on `max_bars_back` vs `calc_bars_count`
+//──────────────────────────────────────────────────
+//
+// 🔹 `max_bars_back`
+//    • Sets how many historical bars Pine keeps in memory for direct indexing
+//      (e.g. using `close[5000]`, `time[4000]`, etc).
+//    • Hard limit is 5000. You cannot request beyond this, or you’ll get an error.
+//    • This is about *lookback depth* in arrays and series.
+//
+// 🔹 `calc_bars_count`
+//    • Sets how many bars back the script *actually starts calculating on*.
+//    • Hard limit is 50,000 (way larger).
+//    • Lets drawings (lines, labels, etc.) appear further back on the chart
+//      without requiring deep indexing.
+//    • Example: `calc_bars_count=20000` means 20k bars of history are processed,
+//      but you still cannot do `close[6000]` unless `max_bars_back` ≥ 6000.
+//
+// ✅ Together:
+//    • `max_bars_back = 5000` → logic can only index up to 5000 bars safely.
+//    • `calc_bars_count = 7500` → chart will still process and display objects
+//      across 7500 bars, but code must never index past 5000 bars.
+//
+// 🛠️ Practical use:
+//    • Keep `max_bars_back` at the max you need for indexing (≤5000).
+//    • Set `calc_bars_count` higher if you want visuals drawn on older data.
+//    • Always guard array/time lookups with `bar_offset <= in_max_bars_back_`
+//      to prevent runtime errors when calc_bars_count is larger.
+//
+//──────────────────────────────────────────────────────────────────────────────
+
+
+var string settingsGroup = "Global Settings"
+//──────────────────────────────────────────────────
+// ⏳ User Input: Max Bars Back for Label Lookups
+//──────────────────────────────────────────────────
+// PineScript hard limit: 5000
+// We clamp historical lookups with safe_offset to avoid runtime errors.
+// Increasing this lets labels look further back in history (up to 5000 bars).
+
+var int in_max_bars_back_ = input.int(
+     defval = 3000,
+     title  = "Max Bars Back for Support/Resistance Labels",
+     minval = 1000,
+     maxval = 5000,
+     step   = 500,
+     group  = settingsGroup,
+     display = _display,
+     tooltip = "Sets how far back labels and historical lookups are allowed to reference.\n\n🔹 Max allowed is 5000 (Pine Script limit).\n\nUse this to control the depth of array or time-based indexing (e.g. `close[4000]`).\n\n✅ Tip: If your drawing logic uses `calc_bars_count` > 5000, this setting still needs to cap direct indexing at 5000 to avoid runtime errors.\n\nUse in combo with `calc_bars_count` for deep visuals, but always guard against indexing too far."
+ )
+
+
+
+// ╔══════════════════════════════════════════════════════════════════════════════════╗
+// ║                    🔷 EMA Top & Bottom Line Visualization Settings
+// ╠──────────────────────────────────────────────────────────────────────────────────
+// ║ These settings control the visual lines drawn based on EMA ribbon logic.
+// ║ - The "Top Line" typically tracks bullish resistance or bearish fall zones
+// ║ - The "Bottom Line" represents support depending on market context
+// ║ - Colors adapt dynamically based on ribbon transitions
+// ║ - Optional label visibility toggles included
+// ╚══════════════════════════════════════════════════════════════════════════════════╝
+
+EMA_sprt_res_settings = "🔸Trend State Settings🔸"
+
+// === Candle Overlay Mode ===
+string candleOverlayMode = input.string(
+     title="Candle Overlay Mode",
+     defval="PlotCandles",
+     options=["None", "Bar Color", "PlotCandles"],
+     tooltip="Choose how the ribbon colors are displayed on candles:\n\n• None – Turns off all coloring\n• Bar Color – Colors candles using TradingView's barcolor(). Keeps custom chart bar styles active, otherwise turn off Trading View's bar colors in Settings menu to see this script's custom candle colors that uses plotcandles. \n• PlotCandles – Uses script's custom candles. Colors the entire candle (body + wick + border) with one unified color based on the trend state.",
+     display = _display,
+     group=EMA_sprt_res_settings
+  )
+
+// ╔════════════════════════════════════════════════════════════════════════════════════╗
+// ║                           📊 EMA Stack Framework
+// ╠────────────────────────────────────────────────────────────────────────────────────
+// ║ This section is the *core engine* of the script: a dynamic EMA stacking system.
+// ║ Instead of using a single moving average, traders can select between carefully
+// ║ structured EMA groups (short, long, or minimal sets). Each stack is designed with
+// ║ Fibonacci-derived lengths, which many traders consider “natural rhythm” levels of
+// ║ market structure.
+// ║
+// ║ 🔹 Why it matters for traders:
+// ║ - **Stack Order = Market Bias** → The relative order of EMAs determines whether
+// ║   the market is trending bullish, bearish, or compressing (neutral/gray).
+// ║ - **Dynamic Flexibility** → Switch between short-term sets (5–55) for scalping,
+// ║   or longer sets (21–233) for swing/position trading.
+// ║ - **Contextual Support/Resistance** → The “top line” and “bottom line” of the
+// ║   ribbon act as dynamic support and resistance. They tighten in choppy zones and
+// ║   expand in trends, helping traders adapt their entries/exits.
+// ║ - **Built-in Sensitivity Filters** → ATR multipliers are baked in to prevent false
+// ║   transitions and stabilize the ribbon width across assets/timeframes.
+// ║
+// ║ 🔹 Practical Benefit:
+// ║ - Visualizes whether a market is aligned in clean bullish/bearish momentum or
+// ║   tangled in indecision.
+// ║ - Traders can use EMA stack shifts as early signals of **trend reversals** or
+// ║   **continuations**, often earlier than single MA crossovers.
+// ║ - Provides an adaptive framework usable across intraday scalping to long-term
+// ║   swing strategies.
+// ║
+// ║ In short → This EMA Stack section transforms raw price into a *structured roadmap*
+// ║ for trend bias, support/resistance, and momentum alignment.
+// ╚════════════════════════════════════════════════════════════════════════════════════╝
+
+// ───────────────────────────────────────────────
+// 🔹 Trend State Visibility
+// ───────────────────────────────────────────────
+bool show_top_line          = input.bool(true,  "Top Line",           inline = "TrendVis", group = EMA_sprt_res_settings, display = _display)
+bool show_bottom_line       = input.bool(true,  "Bottom Line",        inline = "TrendVis", group = EMA_sprt_res_settings, display = _display)
+bool show_topline_labels    = input.bool(true,  "Top Labels",         inline = "TrendVis", group = EMA_sprt_res_settings, display = _display)
+bool show_bottomline_labels = input.bool(true,  "Bottom Labels",      inline = "TrendVis", group = EMA_sprt_res_settings, display = _display)
+
+// ───────────────────────────────────────────────
+// 🎨 Trend State Colors
+// ───────────────────────────────────────────────
+color color_bearish_price_state       = input.color(#f51673,               "Bearish Price",        inline = "TrendColor", group = EMA_sprt_res_settings, display = _display)
+color color_bullish_price_state       = input.color(color.orange,          "Bullish Price",        inline = "TrendColor", group = EMA_sprt_res_settings, display = _display)
+color color_bullish_resistance_state  = input.color(color.rgb(44,161,190), "Bullish Resistance",   inline = "TrendColor", group = EMA_sprt_res_settings, display = _display)
+color color_bearish_support_state     = input.color(color.yellow,          "Bearish Support",      inline = "TrendColor", group = EMA_sprt_res_settings, display = _display)
+
+// ───────────────────────────────────────────────
+// ⚙️ Visual Tuning touhid
+// ───────────────────────────────────────────────
+int line_width = input.int(2, "Line Width", minval = 1, maxval = 5, inline = "TrendTune", group = EMA_sprt_res_settings, display = _display)
+
+// turns out these are best as harcoded because they act as stability thresholds. What I found was setting 1 or the other to a low value actually made parts of the chart disappear.
+float atr_multiplier_gray    =  14 //input.float(12, "ATR Threshold - Gray Zone", minval=0.1, step=0.05, group=EMA_sprt_res_settings,
+                                          //tooltip="Defines narrow zone width for neutral (gray) state when EMAs are close.")
+float atr_multiplier_yellow  = 14 // input.float(12, "ATR Threshold - Yellow Zone", minval=0.1, step=0.05, group=EMA_sprt_res_settings,
+                                          //tooltip="Defines tighter zone for yellow (transition) state. Typically appears after trend reversal.")
+
+
+// ╔══════════════════════════════════════════════════════════════════════════════════╗
+// ║                         📐 EMA Length Stack (Fibonacci-Based)
+// ╠══════════════════════════════════════════════════════════════════════════════════
+// ║ This section uses a fixed 5-EMA stack: **5, 8, 13, 21, 34**
+// ║
+// ║ These lengths are derived from the Fibonacci sequence — widely used by traders
+// ║ to reflect natural market rhythm and cyclical behavior.
+// ║
+// ║ 🔹 Purpose of Each Length:
+// ║ • 5 & 8  → Capture ultra-short-term price sensitivity
+// ║ • 13 & 21 → Reflect short-term momentum and structure
+// ║ • 34     → Acts as a dynamic mid-term trend anchor
+// ║
+// ║ 🔹 How This Helps:
+// ║ • Reveals the directional alignment of price across multiple time horizons
+// ║ • Enables bullish/bearish stack detection based on strict EMA order
+// ║ • Detects compression zones (gray/yellow) where EMAs cluster tightly
+// ║
+// ║ 📌 This stack is tuned for scalping and short-term trend following strategies.
+// ╚══════════════════════════════════════════════════════════════════════════════════╝
+
+ema_group = "🔸EMA Inputs🔸"
+
+// ───────────────────────────────────────────────
+// 🔸 EMA Lengths Based on Selection
+// ───────────────────────────────────────────────
+int ema1_length = input.int(5, "EMA 1", tooltip = "Captures ultra-short-term price action.\n\nThis EMA reacts fastest to market changes and serves as the most sensitive trend signal in the stack.", inline = "EMAStack", group = ema_group, display = _display)
+int ema2_length = input.int(8, "EMA 2", tooltip = "Tracks very short-term momentum.\n\nPairs with EMA 5 to reveal rapid directional shifts and early breakouts.", inline = "EMAStack", group = ema_group, display = _display)
+int ema3_length = input.int(13, "EMA 3", tooltip = "Acts as a short-term trend filter.\n\nHelps smooth out noise while maintaining sensitivity to recent moves.", inline = "EMAStack", group = ema_group, display = _display)
+int ema4_length = input.int(21, "EMA 4", tooltip = "Reflects short-to-mid-term market structure.\n\nOften used to identify the core trend direction in price.", inline = "EMAStack", group = ema_group, display = _display)
+int ema5_length = input.int(34, "EMA 5", tooltip = "Serves as the trend anchor of the stack.\n\nSlower and more stable — helps define broader momentum and resistance/support zones.", inline = "EMAStack", group = ema_group, display = _display)
+//int ema6_length = input.int(59, "EMA 5", tooltip = "Serves as the trend anchor of the stack.\n\nSlower and more stable — helps define broader momentum and resistance/support zones.", inline = "EMAStack", group = ema_group, display = _display)
+
+
+// --- EMA Calculations ---
+float ema1 = ta.ema(close, ema1_length)
+float ema2 = ta.ema(close, ema2_length)
+float ema3 = ta.ema(close, ema3_length)
+float ema4 = ta.ema(close, ema4_length)
+float ema5 = ta.ema(close, ema5_length)
+//float ema6 = ta.ema(close, ema6_length)
+
+
+// ATR-based thresholds for narrowing detection
+float atr_gray   = ta.atr(14) * atr_multiplier_gray
+float atr_yellow = ta.atr(14) * atr_multiplier_yellow
+
+
+// ╔══════════════════════════════════════════════════════════════════════════════════╗
+// ║                        🔢 EMA Stack & Narrowing Detection
+// ╠──────────────────────────────────────────────────────────────────────────────────
+// ║ 1. Collects all active EMAs into an array.    ║
+// ║ 2. Dynamically checks if EMAs are ordered strictly ascending (bullish stack) or
+// ║    descending (bearish stack). This avoids hardcoding specific EMA comparisons.
+// ║ 3. Calculates the spread between the fastest and slowest EMA to detect
+// ║    “narrowing” states (gray/yellow). These indicate indecision or transition
+// ║    zones where trend strength weakens.
+// ║
+// ║ Why this matters:
+// ║ • Makes the script future-proof.
+// ║ • Cleaner, more efficient than comparing ema1 > ema2 > ema3 manually.
+// ║ • Traders get clear signals:
+// ║     🔹 Bullish stack = trending up with strong alignment.
+// ║     🔹 Bearish stack = trending down with strong alignment.
+// ║     🔹 Narrowing zones = warning of consolidation or potential reversal.
+// ╚══════════════════════════════════════════════════════════════════════════════════╝
+// ╔══════════════════════════════════════════════════════════════════════════════════╗
+// ║                    🔢 EMA Stack Logic & Narrowing Zone Detection
+// ╠═══════════════════════════════════════════════════════════════════════════════════
+// ║ This block dynamically evaluates the **order and spacing** of the 5 active EMAs:
+// ║ 5, 8, 13, 21, and 34.
+// ║
+// ║ 🔹 Stack State Detection:
+// ║ • **Bullish Stack** → EMAs strictly ordered descending: EMA 5 > 8 > 13 > 21 > 34
+// ║ • **Bearish Stack** → EMAs strictly ordered ascending: EMA 5 < 8 < 13 < 21 < 34
+// ║ • Uses array-based logic to avoid manual comparisons and reduce error
+// ║
+// ║ 🔹 Narrowing Zone Detection:
+// ║ • Measures the spread between fastest (EMA 5) and slowest (EMA 34)
+// ║ • If spread is below defined ATR thresholds:
+// ║     → **Gray Zone** = Consolidation or indecision
+// ║     → **Yellow Zone** = Early transition or weakening trend
+// ║
+// ║ 📈 These zones help anticipate breakout setups, trend reversals, or chop areas.
+// ╚═══════════════════════════════════════════════════════════════════════════════════╝
+
+
+bool is_bullish_stack = ema1 > ema2 and ema2 > ema3 and ema3 > ema4 and ema4 > ema5
+bool is_bearish_stack = ema1 < ema2 and ema2 < ema3 and ema3 < ema4 and ema4 < ema5
+
+float ema_spread = math.abs(ema1 - ema5)
+
+bool is_narrowing_gray   = not is_bullish_stack and not is_bearish_stack and ema_spread < atr_gray
+bool is_narrowing_yellow = not is_bullish_stack and not is_bearish_stack and ema_spread < atr_yellow
+
+
+// ╔══════════════════════════════════════════════════════════════════════════════════╗
+// ║                          🔁 EMA Stack State Persistence
+// ╠──────────────────────────────────────────────────────────────────────────────────
+// ║ Tracks previous stack state (bullish or bearish) to detect transitions.
+// ║ This helps inform color changes and transition zones like support/resistance.
+// ╚══════════════════════════════════════════════════════════════════════════════════╝
+
+var bool was_bullish_stack = false
+var bool was_bearish_stack = false
+
+was_bullish_stack := is_bullish_stack ? true : is_bearish_stack ? false : was_bullish_stack
+was_bearish_stack := is_bearish_stack ? true : is_bullish_stack ? false : was_bearish_stack
+
+
+// ╔══════════════════════════════════════════════════════════════════════════════════╗
+// ║                      🔮 Price Levels Based on EMA Stack
+// ╠──────────────────────────────────────────────────────────────────────────────────
+// ║ Records the most recent price where the EMAs were in a full bullish or bearish
+// ║ stack condition. These become the "top" or "bottom" prediction lines.
+// ╚══════════════════════════════════════════════════════════════════════════════════╝
+
+float bearish_stack_price = ta.valuewhen(is_bearish_stack, close, 0)
+float bullish_stack_price = ta.valuewhen(is_bullish_stack, close, 0)
+
+
+// ╔══════════════════════════════════════════════════════════════════════════════════╗
+// ║                      🎨 Assign Top & Bottom Line Colors
+// ╠──────────────────────────────────────────────────────────────────────────────────
+// ║ Uses current and past stack state to assign dynamic color styles to each line.
+// ╚══════════════════════════════════════════════════════════════════════════════════╝
+
+color top_line_color = is_bearish_stack                                ? color_bearish_price_state :
+                       is_narrowing_yellow and not was_bullish_stack  ? color_bearish_support_state :
+                       is_narrowing_gray   and was_bullish_stack      ? color_bullish_resistance_state :
+                       is_bullish_stack                               ? color_bullish_price_state :
+                       na
+
+color bottom_line_color = top_line_color == color_bearish_price_state   ? color_bearish_price_state :
+                          top_line_color == color_bearish_support_state      ? color_bearish_support_state :
+                          top_line_color == color_bullish_resistance_state   ? color_bullish_resistance_state :
+                          top_line_color == color_bullish_price_state      ? color_bullish_price_state :
+                          na
+
+
+// ╔══════════════════════════════════════════════════════════════════════════════════╗
+// ║ 🖌️ Bar Coloring Logic – Based on Top Line State
+// ╠──────────────────────────────────────────────────────────────────────────────────
+// ║ Applies bar colors based on top line transition states.
+// ╚══════════════════════════════════════════════════════════════════════════════════╝
+
+color bar_color = na
+
+if top_line_color == color_bearish_price_state
+    bar_color := color_bearish_price_state
+else if top_line_color == color_bearish_support_state
+    bar_color := color_bearish_support_state
+else if top_line_color == color_bullish_resistance_state
+    bar_color := color_bullish_resistance_state
+else if top_line_color == color_bullish_price_state
+    bar_color := color_bullish_price_state
+
+
+
+// ╔══════════════════════════════════════════════════════════════════════════════════╗
+// ║                           🟨 Transition State Labels
+// ╠──────────────────────────────────────────────────────────────────────────────────
+// ║ This block creates **on-chart labels** that visually call out EMA ribbon
+// ║ transition states. They serve two purposes:
+// ║   1) 🔎 Debugging Aid → Helps verify logic by showing exactly when the code
+// ║      detects transitions (e.g., bearish fall, bullish support, resistance test).
+// ║   2) 📊 Trader Feedback → Provides immediate context during live trading,
+// ║      highlighting whether price is entering a new trend, testing support, or
+// ║      breaking into resistance.
+// ║
+// ║ 🎯 Benefits for Traders:
+// ║ - Clearly see *when and why* the script thinks the trend is shifting.
+// ║ - Spot early warning signals (“💡 Begin Bear Trend?” or “💡 Begin Uptrend?”).
+// ║ - Differentiate between *support*, *resistance*, and *transition zones*.
+// ║ - Gain confidence in the EMA stack framework by visually confirming transitions.
+// ║
+// ║ 🛠 How it works:
+// ║ - The helper function `f_label()` checks whether labels should be shown and
+// ║   places them at relevant EMA levels (`label_y_bull` or `label_y_bear`).
+// ║ - Each label is styled with background + text colors to match the state (orange
+// ║   for bullish, gray for bearish, yellow for resistance, etc.).
+// ║ - Top line labels = signals above price (downward style).
+// ║ - Bottom line labels = confirmations below price (upward style).
+// ║
+// ║ In short → These labels turn invisible logic into visible trading cues,
+// ║ making the script more intuitive and easier to trust in real time.
+// ╚══════════════════════════════════════════════════════════════════════════════════╝
+
+
+var color prev_top_line_color = na
+var color prev_bottom_line_color = na
+prev_top_line_color := nz(prev_top_line_color)
+prev_bottom_line_color := nz(prev_bottom_line_color)
+
+// === Label Style Settings ===
+string label_size1 = input.string(
+     title   = "Label Size",
+     defval  = "tiny",
+     options = ["tiny", "small", "normal", "large", "huge"],
+     tooltip = "Adjusts the size of the SPRT/RES and trend transition labels on the chart.",
+     group   = EMA_sprt_res_settings,
+     display = _display
+  )
+
+// === Transition State Detection ===
+bool is_transition_to_bearish_price_fall = top_line_color[1] == color_bullish_resistance_state and top_line_color == color_bearish_price_state
+bool is_bearish_support_transition = top_line_color[1] == color_bearish_price_state and top_line_color == color_bearish_support_state
+bool is_bullish_support_transition = bottom_line_color[1] == color_bearish_support_state and bottom_line_color == color_bullish_price_state
+bool is_bullish_resistance_transition = bottom_line_color[1] == color_bullish_price_state and bottom_line_color == color_bullish_resistance_state
+bool is_bearish_price_fall_transition = bottom_line_color[1] == color_bearish_support_state and bottom_line_color == color_bearish_price_state
+bool is_bullish_support_after_resistance = bottom_line_color[1] == color_bullish_resistance_state and bottom_line_color == color_bullish_price_state
+
+
+// === Label Y Positions ===
+float label_y_bear = bearish_stack_price
+float label_y_bull = bullish_stack_price
+
+// === Label Helper ===
+f_label(_show, _cond, _y, _text, _bg, _fg, _style) =>
+    if _show and _cond
+        label.new(bar_index - 1, _y, _text, color=_bg, textcolor=_fg, style=_style, size=label_size1)
+
+// === Top Line Labels === Bear Trend/  "💡\nBEAR?\n"
+f_label(show_topline_labels, is_transition_to_bearish_price_fall, label_y_bull, "BEAR?\n", #ff525205, #f51673, label.style_label_down)
+f_label(show_topline_labels, is_bearish_price_fall_transition,     label_y_bull, "BEAR?\n", #ff525200, #f51673, label.style_label_down)
+f_label(show_topline_labels, is_bearish_support_transition,        label_y_bull, "\nSPRT", #787b8600, color.yellow, label.style_label_down)
+f_label(show_topline_labels, is_bullish_support_transition,        high, "\nUp?", #4caf4f00, color.orange, label.style_label_down)
+f_label(show_topline_labels, is_bullish_support_after_resistance,  high, "\nUP?", #ff990000, color.orange, label.style_label_down)
+f_label(show_topline_labels, is_bullish_resistance_transition,     high, "\nRES?", #ffeb3b00, color.rgb(255, 215, 40), label.style_label_down)
+
+// === Bottom Line Labels ===
+f_label(show_bottomline_labels, is_bullish_resistance_transition, label_y_bear, "\nRES", #ffeb3b00, color.rgb(44, 161, 190), label.style_label_up)
+f_label(show_bottomline_labels, is_bullish_support_transition,    label_y_bear, "UP\nSPRT", #4caf4f00, color.orange, label.style_label_up)
+f_label(show_bottomline_labels, is_bullish_support_after_resistance, label_y_bear, "UP\nSPRT", #ff990000, color.orange, label.style_label_up)
+
+
+
+// ╔═════════════════════════════════════════════════════════════════════════════════╗
+// ║                  📊 Global State: Support, Resistance & Regain Tracking
+// ╠─────────────────────────────────────────────────────────────────────────────────
+// ║ This section declares all persistent variables and arrays used throughout the
+// ║ script for line creation, tracking, and regain logic.
+// ║
+// ║ ─ Support Lines:
+// ║   • Store drawn SPRT lines, their prices, bar indices, and label states.
+// ║          // ║
+// ║ ─ Resistance Lines:
+// ║   • Store drawn RES lines, their prices, bar indices, and label states.
+// ║
+// ╚═════════════════════════════════════════════════════════════════════════════════╝
+
+
+// === 🟨 Support Line State ===
+var array<line>  support_lines    = array.new_line()
+var array<float> support_prices   = array.new_float()
+var array<int>   support_indices  = array.new_int()
+var array<bool>  support_labeled  = array.new_bool()   // ✅ track if line already labeled
+
+var float last_support_price      = na
+var int   last_support_index      = na
+var int   last_valid_bar_support  = na
+
+// Tracks broken support (for regain logic)
+var float most_recent_broken_support_price = na
+var int   most_recent_broken_support_bar   = na
+var bool  is_support_broken_label          = false   // ✅ true only on break candle
+
+// === 🟥 Resistance Line State ===
+var array<line>  resistance_lines   = array.new_line()
+var array<float> resistance_prices  = array.new_float()
+var array<int>   resistance_indices = array.new_int()
+var array<bool>  resistance_labeled = array.new_bool()   // ✅ track if line already labeled
+
+var float last_resistance_price     = na
+var int   last_resistance_index     = na
+var int   last_valid_bar_res        = na
+var int   last_broke_res_bar        = na
+var float last_broke_res_price      = na
+line      new_resistance_line       = na
+
+// ╔═════════════════════════════════════════════════════════════════════════════════╗
+// ║                      🛠️ Utility & Label Management Helpers
+// ╠─────────────────────────────────────────────────────────────────────────────────
+// ║ These functions support formatting, spacing, label text composition,
+// ║ and lifecycle management. They ensure consistent visuals across
+// ║ support/resistance labels, regain markers, and transitions.
+// ╚═════════════════════════════════════════════════════════════════════════════════╝
+
+// ──────────────────────────────────────────────
+// ✨ Spacing & Text Helpers
+// ──────────────────────────────────────────────
+
+// 🔧 Insert padding spaces (em-spaces for label alignment)
+f_spacer(int _n) =>
+    var string emSpace = " "
+    string out = ""
+    for i = 1 to _n
+        out += emSpace
+    out
+
+
+// ╔══════════════════════════════════════════════════════════════════════════════════╗
+// ║                  📏 Support & Resistance Extension Settings
+// ╠──────────────────────────────────────────────────────────────────────────────────
+// ║ Controls creation, styling, and visibility of Support (green) and Resistance
+// ║ (magenta) extension lines. Users can independently toggle visibility, labels,
+// ║ line thickness, and colors. Labels remain independent from line visibility.
+// ╚══════════════════════════════════════════════════════════════════════════════════╝
+
+group_snr = "🔸SPRT & RES Extension Lines Settings🔸"
+
+// ───────────────────────────────────────────────
+// 🔹 Support Line Settings
+// ───────────────────────────────────────────────
+string support_line_visibility       = input.string("Keep Visible", "Support Line Visibility", options=["Keep Visible", "Hide All"], inline="SupportVis", group=group_snr, tooltip="Choose whether to keep historical support lines visible or hide them completely.", display=_display)
+bool   keep_support_lines_visible    = (support_line_visibility == "Keep Visible")
+bool   show_support_labels           = input.bool(true, "Support Labels", inline="SupportVis", group=group_snr, display=_display)
+int    support_line_width            = input.int(2, "Support Line Width", minval=1, maxval=5, inline="SupportVis", group=group_snr, display=_display)
+int    max_support_lines             = input.int(10, "Max Support Lines", minval=0, maxval=50, inline="SupportVis", group=group_snr, display=_display)
+color  support_line_color            = input.color(#367730, "Support Line Color", inline="SupportVis", group=group_snr, display=_display)
+
+// ───────────────────────────────────────────────
+// 🔹 Resistance Line Settings
+// ───────────────────────────────────────────────
+string resistance_line_visibility    = input.string("Keep Visible", "Resistance Line Visibility", options=["Keep Visible", "Hide All"], inline="ResistanceVis", group=group_snr, tooltip="Choose whether to keep historical resistance lines visible or hide them completely.", display=_display)
+bool   keep_resistance_lines_visible = (resistance_line_visibility == "Keep Visible")
+bool   show_resistance_line_label_   = input.bool(true, "Resistance Labels", inline="ResistanceVis", group=group_snr, display=_display)
+int    resistance_line_width         = input.int(2, "Resistance Line Width", minval=1, maxval=5, inline="ResistanceVis", group=group_snr, display=_display)
+int    max_resistance_lines          = input.int(10, "Max Resistance Lines", minval=0, maxval=50, inline="ResistanceVis", group=group_snr, display=_display)
+color  resistance_line_color         = input.color(color.rgb(188, 78, 153), "Resistance Line Color", inline="ResistanceVis", group=group_snr, display=_display)
+
+// ───────────────────────────────────────────────
+// 🔹 Shared Label Size
+// ───────────────────────────────────────────────
+labelSizeInput_snr_labels = input.string("Tiny", "Label Size (🟢SPRT & 🔴RES)", options=["Tiny", "Small", "Normal", "Large", "Huge"], inline="SNRLabelSize", group=group_snr, display=_display)
+
+labelSize_snr_labels = switch labelSizeInput_snr_labels
+    "Tiny"   => size.tiny
+    "Small"  => size.small
+    "Normal" => size.normal
+    "Large"  => size.large
+    "Huge"   => size.huge
+
+
+
+// ╔══════════════════════════════════════════════════════════════════════════════════╗
+// ║                         🏷️ Support & Resistance Labels
+// ╠──────────────────────────────────────────────────────────────────────────────────
+// ║ Shared function to place SPRT (up) and RES (down) labels. Uses independent
+// ║ toggles for support/resistance labels and respects user-selected colors + size.
+// ╚══════════════════════════════════════════════════════════════════════════════════╝
+
+// --- Unified Label Management Function ---
+f_manage_snr_label(_isSupport, _cond, _bar, _price, _txt, _isBullish) =>
+    if _isSupport and _cond and show_support_labels
+        label.new(
+             _bar,
+             _price,
+             _txt,
+             style     = label.style_label_up,
+             textcolor = _isBullish ? color.green : color.gray,    // 🟢 SPRT vs failed reclaim
+             color     = #ffffff00,                                // transparent background
+             size      = labelSize_snr_labels
+          )
+    if not _isSupport and _cond and show_resistance_line_label_
+        label.new(
+             _bar,
+             _price,
+             _txt,
+             style     = label.style_label_down,
+             textcolor = _isBullish ? na : #d630f3,
+             color     = #ffffff00,
+             size      = labelSize_snr_labels
+          )
+
+
+// ╔══════════════════════════════════════════════════════════════════════════════════╗
+// ║                             🛠 Additional Helper Functions
+// ╚══════════════════════════════════════════════════════════════════════════════════╝
+f_extend_line(_line, _y) =>
+    line.set_xy2(_line, bar_index, _y)
+
+f_new_support_line(_index, _price) =>
+    line l = line.new(x1=_index, y1=_price, x2=bar_index + 100, y2=_price, color=support_line_color, width=support_line_width, extend = extend.none)
+    array.push(support_lines, l)
+    array.push(support_prices, _price)
+    array.push(support_indices, _index)
+    array.push(support_labeled, false)   // ✅ mark as not labeled yet
+    // enforce max count here only
+    while array.size(support_lines) > max_support_lines
+        line oldest = array.shift(support_lines)
+        array.shift(support_prices)
+        array.shift(support_indices)
+        array.shift(support_labeled)     // ✅ keep arrays in sync
+        line.delete(oldest)
+
+
+// ╔══════════════════════════════════════════════════════════════════════════════════╗
+// ║                         ➕ Create New Support Lines
+// ╚══════════════════════════════════════════════════════════════════════════════════╝
+if bottom_line_color == color_bullish_resistance_state and not na(bearish_stack_price)
+    last_support_price := bearish_stack_price
+    last_support_index := bar_index
+
+bool is_support_transition =
+     bottom_line_color == color_bearish_price_state and
+     bottom_line_color[1] == color_bullish_resistance_state and
+     not na(last_support_price) and
+     not na(last_support_index) and
+     close > last_support_price
+
+if is_support_transition and not na(last_support_price) and last_support_price > 0
+    f_new_support_line(last_support_index, last_support_price)
+    f_manage_snr_label(true, show_support_labels, bar_index - 1, last_support_price, "🟢\nSPRT", true)
+
+
+// ╔══════════════════════════════════════════════════════════════════════════════════╗
+// ║                          ⚙️ Support Line Handling
+// ╚══════════════════════════════════════════════════════════════════════════════════╝
+if array.size(support_lines) > 0
+    for i = array.size(support_lines) - 1 to 0
+        line  l     = array.get(support_lines, i)
+        float price = array.get(support_prices, i)
+        int   idx   = array.get(support_indices, i)
+
+        if close < price and close[1] >= price
+            last_valid_bar_support := bar_index
+
+        if keep_support_lines_visible
+            // --- Normal visible behavior ---
+            if close < price
+                int breakdown_bar = nz(last_valid_bar_support, idx)
+                line.set_xy2(l, breakdown_bar, price)
+                array.remove(support_lines, i)
+                array.remove(support_prices, i)
+                array.remove(support_indices, i)
+                array.remove(support_labeled, i)  // ✅ keep arrays in sync
+            else
+                f_extend_line(l, price)
+        else
+            // --- Hide All: delete line but keep arrays intact for regain labels ---
+            line.delete(l)
+
+
+// ╔══════════════════════════════════════════════════════════════════════════════════╗
+// ║                         ➕ Create New Resistance Lines
+// ╚══════════════════════════════════════════════════════════════════════════════════╝
+if top_line_color == color_bearish_support_state and not na(bullish_stack_price)
+    last_resistance_price := bullish_stack_price
+    last_resistance_index := bar_index
+
+bool is_resistance_transition =
+     top_line_color == color_bullish_price_state and
+     top_line_color[1] == color_bearish_support_state and
+     not na(last_resistance_price) and
+     not na(last_resistance_index) and
+     close < last_resistance_price
+
+if is_resistance_transition and not na(last_resistance_price) and last_resistance_price > 0
+    line new_res_line = line.new(last_resistance_index, last_resistance_price, bar_index, last_resistance_price,
+                                 color=resistance_line_color, width=resistance_line_width, extend=extend.none)
+    array.push(resistance_lines, new_res_line)
+    array.push(resistance_prices, last_resistance_price)
+    array.push(resistance_indices, last_resistance_index)
+    array.push(resistance_labeled, false)  // ✅ not labeled yet
+
+    f_manage_snr_label(false, show_resistance_line_label_, bar_index - 1, last_resistance_price, "🔴\nRES", false)
+
+
+    while array.size(resistance_lines) > max_resistance_lines
+        line oldest = array.shift(resistance_lines)
+        array.shift(resistance_prices)
+        array.shift(resistance_indices)
+        array.shift(resistance_labeled)    // ✅ keep in sync
+        line.delete(oldest)
+
+
+// ╔══════════════════════════════════════════════════════════════════════════════════╗
+// ║                          ⚙️ Resistance Line Handling (Dropdown Mode)
+// ╚══════════════════════════════════════════════════════════════════════════════════╝
+if array.size(resistance_lines) > 0
+    for i = array.size(resistance_lines) - 1 to 0
+        line  l     = array.get(resistance_lines, i)
+        float price = array.get(resistance_prices, i)
+        int   idx   = array.get(resistance_indices, i)
+
+        // --- Track breakout bar for extension ---
+        if close > price and close[1] <= price
+            last_valid_bar_res := bar_index
+
+        if keep_resistance_lines_visible
+            if close > price
+                int breakout_bar = nz(last_valid_bar_res, idx)
+                line.set_xy2(l, breakout_bar, price)
+                array.remove(resistance_lines, i)
+                array.remove(resistance_prices, i)
+                array.remove(resistance_indices, i)
+                array.remove(resistance_labeled, i)   // ✅ keep in sync
+            else
+                line.set_xy2(l, bar_index, price)
+        // else → do nothing (lines hidden), arrays intact so labels still fire
+
+
+// ╔══════════════════════════════════════════════════════════════════════════════════════════╗
+// 📌 Pivot-Based Projection Lines — via Left/Right Bar Logic
+//
+// 🔹 What This Block Does:
+// --------------------------------------------------------------------------------
+// Dynamically draws **horizontal support/resistance lines** at candidate pivot high/low levels
+// using a classic **Left/Right bar structure** for pivot detection (default left 21, right 5)
+//
+// 🧠 Pivot Logic Explained:
+// --------------------------------------------------------------------------------
+// • A **Pivot High** is detected when the current bar's high is greater than all
+//   highs in the last `Left Bars` - You can look at this as a lookback window
+//
+// • A **Pivot Low** is detected when the current bar's low is lower than all lows
+//   in the last `Left Bars`
+//
+// • These pivot candidates are **early-stage**, and aren't confirmed by Right Bars
+//   — but are **visually projected forward** as structural clues.
+//
+// 📈 Projection Line Behavior:
+// --------------------------------------------------------------------------------
+// • Once a pivot is detected, a horizontal line is drawn at that bar
+// • The line **extends forward** on each bar until a new pivot of the same type
+//   replaces it
+// • The source used (Wicks vs Closes) can be toggled to adjust sensitivity
+//
+// 🔍 Use Case Examples:
+// --------------------------------------------------------------------------------
+// ✅ Visualize where structure may form before full confirmation
+// ✅ Track local highs/lows in real time
+// ✅ Combine with your existing EMA stack logic for confluence
+// ✅ Useful in scalping or reversal-based strategies
+//
+// 🛠 Configurable via:
+// --------------------------------------------------------------------------------
+// - Left/Right bar settings
+// - Source selection (Wicks vs Closes)
+// - Line colors and visibility toggles
+// ╚════════════════════════════════════════════════════════════════════════════════════════╝
+
+group_pivotProj = "🔸Pivot-Based S/R Settings🔸"
+
+// ───────────────────────────────────────────────
+// 🔹 Pivot-Based SPRT/RES Lines Settings
+// ───────────────────────────────────────────────
+showProjLines = input.bool(true, "Show SPRT/RES Lines (Pivot-Based)", tooltip="Enable/Disable support/resistance lines that project early pivot levels.\n\nThese are **pre-confirmation support/resistance** levels drawn using Left/Right bar logic:\n• Pivot High = High is higher than last N left bars\n• Pivot Low = Low is lower than last N left bars\n\nLines extend forward until replaced, giving real-time structure insight.\n\nUseful for scalping, reversal setups, or structure mapping.", inline="PivotProj", group=group_pivotProj, display=_display)
+
+in_leftBars_proj = input.int(21, "Left Bars", tooltip="Number of bars to the left required to qualify a pivot.\n\n🔹 A Pivot High must be higher than all highs in this left-side window.\n\nFor example, with Left Bars = 21:\n→ A Pivot High forms only if the current bar's high is greater than the highs of the **previous 21 bars**.\n\nThis acts like a lookback buffer — increasing it reduces noise and creates more reliable but less frequent pivots.", inline="PivotProj", group=group_pivotProj, display=_display)
+
+in_rightBars_proj = input.int(5, "Right Bars", tooltip="Number of bars to the right required to **confirm** the pivot.\n\nThis script projects levels *before* confirmation, but right bars help contextualize how early the structure forms.\n\nIncrease for slower but more confirmed levels. For instant (much quicker) confirmation, use 1 or 2.", inline="PivotProj", group=group_pivotProj, display=_display)
+
+projSrcMode = input.string("Closes", "Pivot Source", options=["Wicks","Closes"], tooltip="Choose the price point used to evaluate pivots:\n• Wicks: Uses Highs/Lows (more sensitive)\n• Closes: Uses Close prices (less noisy, more conservative)", inline="PivotProj", group=group_pivotProj, display=_display)
+
+
+projHighSrc = projSrcMode == "Wicks" ? high : close
+projLowSrc  = projSrcMode == "Wicks" ? low  : close
+
+// ──────────────── Pivot Calculation ────────────────
+projHighVal    = ta.highest(projHighSrc[1], in_leftBars_proj)
+projHighOffset = ta.highestbars(projHighSrc[1], in_leftBars_proj)
+projHighIdx    = bar_index - 1 - projHighOffset
+
+projLowVal     = ta.lowest(projLowSrc[1], in_leftBars_proj)
+projLowOffset  = ta.lowestbars(projLowSrc[1], in_leftBars_proj)
+projLowIdx     = bar_index - 1 - projLowOffset
+
+isProjHigh = projHighSrc > projHighVal
+isProjLow  = projLowSrc  < projLowVal
+
+// ──────────────── Persistent Line Handles ────────────────
+var line projHighLine = na
+var line projLowLine  = na
+
+// ──────────────── Draw New Lines ────────────────
+if showProjLines and isProjHigh
+    line.delete(projHighLine)
+    projHighLine := line.new(
+         x1 = bar_index, y1 = projHighSrc,
+         x2 = bar_index + 1, y2 = projHighSrc,
+         color=#f51673, style=line.style_dotted, width=8
+     )
+if showProjLines and isProjLow
+    line.delete(projLowLine)
+    projLowLine := line.new(x1=bar_index, y1=projLowSrc, x2=bar_index+1, y2=projLowSrc, color=color.rgb(44,161,190), style=line.style_dotted, width=8)
+// ──────────────── Extend Active Lines ────────────────
+if showProjLines and barstate.islast
+    if not na(projHighLine)
+        line.set_x2(projHighLine, bar_index)
+    if not na(projLowLine)
+        line.set_x2(projLowLine, bar_index)
+
+
+// ==============================================================================
+// 📌 Real-time Close
+// ==============================================================================
+groupPriceFollowLine = "🔸Real-time Close Line Settings🔸"
+
+// --- Left Extension ---
+// ───────────────────────────────────────────────
+// 🔹 Price Follow Line Settings
+// ───────────────────────────────────────────────
+
+// --- Left Extension ---
+toggle_extend_left = input.bool(true, "Extend Line Left", inline="left", group=groupPriceFollowLine, display=_display)
+extend_left_bars   = input.int(5, "Bars", minval=0, inline="left", group=groupPriceFollowLine, display=_display)
+left_line_style    = input.string("Solid", "", options=["Solid","Dotted","Dashed"], inline="left", group=groupPriceFollowLine, display=_display)
+
+// --- Right Extension ---
+enable_right_line  = input.bool(true, "Extend Line Right", inline="right", group=groupPriceFollowLine, display=_display)
+extend_right_bars  = input.int(5, "Bars", minval=0, inline="right", group=groupPriceFollowLine, display=_display)
+right_line_style   = input.string("Solid", "", options=["Solid","Dotted","Dashed"], inline="right", group=groupPriceFollowLine, display=_display)
+
+// --- General Style ---
+line_width_close   = input.int(4, "Line Width", minval=1, maxval=10, group=groupPriceFollowLine, display=_display)
+
+
+// Variable to store the line, initialized only once
+var line priceline_left = na
+var line priceline_right = na
+
+
+// Convert string to line style
+line_style_from_input(style) =>
+    switch style
+        "Dotted" => line.style_dotted
+        "Dashed" => line.style_dashed
+        "Solid" => line.style_solid
+        => line.style_solid
+
+//──────────────────────────────────────────────────────────────
+// Helper: create, update, or delete a line
+//──────────────────────────────────────────────────────────────
+f_manageLine(_enabled, _line, _x1, _y1, _x2, _y2, _color, _width, _style) =>
+    var line newLine = _line
+    if _enabled
+        if na(newLine)
+            newLine := line.new(_x1, _y1, _x2, _y2, width=_width, color=_color, style=_style)
+        else
+            line.set_xy1(newLine, _x1, _y1)
+            line.set_xy2(newLine, _x2, _y2)
+            line.set_color(newLine, _color)
+            line.set_width(newLine, _width)
+            line.set_style(newLine, _style)
+    else
+        if not na(newLine)
+            line.delete(newLine)
+            newLine := na
+    newLine
+
+
+// Left line
+int start_x = bar_index - extend_left_bars
+priceline_left := f_manageLine(
+     toggle_extend_left, priceline_left,
+     bar_index, close, start_x, close,
+     bar_color, line_width_close, line_style_from_input(left_line_style)
+ )
+
+// Right line
+priceline_right := f_manageLine(
+     enable_right_line, priceline_right,
+     bar_index, close, bar_index + extend_right_bars, close,
+     bar_color, line_width_close, line_style_from_input(right_line_style)
+ )
+
+
+// ╔══════════════════════════════════════════════════════════════════════════════════╗
+// ║                 📉 Bottom Line Tracker – Real-Time Close Follower
+// ╠──────────────────────────────────────────────────────────────────────────────────
+// ║ This line ensures that a dynamic bottom line follows price in real-time.
+// ╚══════════════════════════════════════════════════════════════════════════════════╝
+
+bool is_bearish_support = bottom_line_color == color_bearish_support_state
+
+color bearish_support_tracker_color =
+  is_bearish_support
+  ? color_bearish_support_state
+  : color.new(color.white, 100)  // Fully transparent in other states
+
+plot(
+  show_bottom_line ? close : na,
+  title="Bottom Line Close Tracker",
+  color=bearish_support_tracker_color,
+  linewidth=line_width
+  )
+
+
+// === Top Line Close Tracker (for Bullish Resistance state) ===
+bool is_bullish_resistance = top_line_color == color_bullish_resistance_state
+
+color bullish_resistance_tracker_color =
+  is_bullish_resistance
+  ? color_bullish_resistance_state
+  : color.new(color.yellow, 100)  // Fully transparent in other states
+
+plot(
+  show_top_line ? close : na,
+  title="Top Line Close Tracker - Bullish Resistance",
+  color=bullish_resistance_tracker_color,
+  linewidth=line_width
+  )
+
+
+plot(show_bottom_line ? bearish_stack_price : na, color=bottom_line_color, linewidth=line_width, title="Bottom Line")
+plot(show_top_line ? bullish_stack_price : na, color=top_line_color, linewidth=line_width, title="Top Line")
+
+
+
+// ╔══════════════════════════════════════════════════════════════════════════════════╗
+// ║ 🕯️ Candle Plotting – Matches Top Line Color States
+// ╠──────────────────────────────────────────────────────────────────────────────────
+// ║ Colors both candle bodies and wicks using bar_color.
+// ╚══════════════════════════════════════════════════════════════════════════════════╝
+// === Bar Color (if "Bar Color" is selected) ===
+barcolor(candleOverlayMode == "Bar Color" ? bar_color : na, title="Bar Color")
+
+// === Custom PlotCandles (if "PlotCandles" is selected) ===
+plotcandle(
+     open,
+     high,
+     low,
+     close,
+     color       = candleOverlayMode == "PlotCandles" ? bar_color : na,
+     wickcolor   = candleOverlayMode == "PlotCandles" ? bar_color : na,
+     bordercolor = candleOverlayMode == "PlotCandles" ? color.new(bar_color, 0) : na,
+     title       = "Ribbon Candle Overlay"
+  )
+
+
+
+
+
+
+
+
+
+
+
+
+//=========================================================================================================================================================================================================
+//🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴 2 touhid
+//=========================================================================================================================================================================================================
+
+// This work is licensed under Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International
+// https://creativecommons.org/licenses/by-nc-sa/4.0/
+// © BigBeluga
+
+
+// //@version=6
+// indicator("Max Trend Points [BigBeluga]", overlay = true, max_lines_count = 500, max_labels_count = 500)
+
+// ＩＮＰＵＴＳ ――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――{
+// ───────────────────────────────────────────────
+// 🔹 Trend Endpoint Variables
+// ───────────────────────────────────────────────
+
+_droup_maxtrendpoint = 'Max Trend Points [BigBeluga]'
+var line line_up_maxtrendpoint = line(na)
+var line line_dn_maxtrendpoint = line(na)
+var label lbl_up_maxtrendpoint  = label(na)
+var label lbl_dn_maxtrendpoint  = label(na)
+
+var highest_maxtrendpoint = array.new<float>()
+var lowest_maxtrendpoint  = array.new<float>()
+
+var int start_maxtrendpoint = na
+
+factor_maxtrendpoint = input.float(2.5, step=0.01, display=_display, group = _droup_maxtrendpoint)
+col_up_maxtrendpoint = input.color(color.rgb(28,194,216), "Color Up", display=_display, group = _droup_maxtrendpoint)
+col_dn_maxtrendpoint = input.color(color.rgb(228,144,19), "Color Dn", display=_display, group = _droup_maxtrendpoint)
+
+// ───────────────────────────────────────────────
+// 🔹 Trend Line Calculations
+// ───────────────────────────────────────────────
+trend_line_maxtrendpoint(factor_maxtrendpoint)=>
+    src = hl2
+    dist = ta.hma(high-low, 200)
+    upperBand = src + factor_maxtrendpoint * dist
+    lowerBand = src - factor_maxtrendpoint * dist
+    prevLowerBand = nz(lowerBand[1])
+    prevUpperBand = nz(upperBand[1])
+
+    lowerBand := lowerBand > prevLowerBand or close[1] < prevLowerBand ? lowerBand : prevLowerBand
+    upperBand := upperBand < prevUpperBand or close[1] > prevUpperBand ? upperBand : prevUpperBand
+
+    int _direction_maxtrendpoint = na
+    float trend_line_maxtrendpoint = na
+    prevTrendLine = trend_line_maxtrendpoint[1]
+    if na(dist[1])
+        _direction_maxtrendpoint := 1
+    else if prevTrendLine == prevUpperBand
+        _direction_maxtrendpoint := close > upperBand ? -1 : 1
+    else
+        _direction_maxtrendpoint := close < lowerBand ? 1 : -1
+
+    trend_line_maxtrendpoint := _direction_maxtrendpoint == -1 ? lowerBand : upperBand
+    [trend_line_maxtrendpoint, _direction_maxtrendpoint]
+
+[trend_line_maxtrendpoint, _direction_maxtrendpoint] = trend_line_maxtrendpoint(factor_maxtrendpoint)
+
+t_change_maxtrendpoint = ta.cross(_direction_maxtrendpoint, 0)
+
+if t_change_maxtrendpoint
+    highest_maxtrendpoint.clear()
+    lowest_maxtrendpoint.clear()
+    start_maxtrendpoint := bar_index
+
+if t_change_maxtrendpoint and _direction_maxtrendpoint == 1
+    line_dn_maxtrendpoint := line.new(bar_index, close, na, na, color=chart.fg_color, style=line.style_dashed)
+    lbl_dn_maxtrendpoint  := label.new(bar_index, low, color=color.new(col_dn_maxtrendpoint, 50), textcolor=chart.fg_color, size=size.small, style=label.style_label_up)
+
+if t_change_maxtrendpoint and _direction_maxtrendpoint == -1
+    lbl_up_maxtrendpoint  := label.new(bar_index, high, color=color.new(col_up_maxtrendpoint, 50), textcolor=chart.fg_color, size=size.small, style=label.style_label_down)
+    line_up_maxtrendpoint := line.new(bar_index, close, na, na, color=chart.fg_color, style=line.style_dashed)
+
+if not t_change_maxtrendpoint and _direction_maxtrendpoint == -1
+    highest_maxtrendpoint.push(high)
+    lbl_up_maxtrendpoint.set_xy(start_maxtrendpoint + highest_maxtrendpoint.indexof(highest_maxtrendpoint.max())+1, highest_maxtrendpoint.max())
+    line_up_maxtrendpoint.set_xy2(start_maxtrendpoint + highest_maxtrendpoint.indexof(highest_maxtrendpoint.max())+1, highest_maxtrendpoint.max())
+
+if not t_change_maxtrendpoint and _direction_maxtrendpoint == 1
+    lowest_maxtrendpoint.push(low)
+    lbl_dn_maxtrendpoint.set_xy(start_maxtrendpoint + lowest_maxtrendpoint.indexof(lowest_maxtrendpoint.min())+1, lowest_maxtrendpoint.min())
+    line_dn_maxtrendpoint.set_xy2(start_maxtrendpoint + lowest_maxtrendpoint.indexof(lowest_maxtrendpoint.min())+1, lowest_maxtrendpoint.min())
+
+if line_up_maxtrendpoint.get_y2() > line_up_maxtrendpoint.get_y1()
+    lbl_up_maxtrendpoint.set_text(str.tostring((line_up_maxtrendpoint.get_y2() - line_up_maxtrendpoint.get_y1()) / line_up_maxtrendpoint.get_y1() * 100, format.percent))
+if line_dn_maxtrendpoint.get_y2() < line_dn_maxtrendpoint.get_y1()
+    lbl_dn_maxtrendpoint.set_text(str.tostring((line_dn_maxtrendpoint.get_y2() - line_dn_maxtrendpoint.get_y1()) / line_dn_maxtrendpoint.get_y1() * 100, format.percent))
+
+t_color_maxtrendpoint = _direction_maxtrendpoint == -1 ? col_up_maxtrendpoint : col_dn_maxtrendpoint
+
+// ───────────────────────────────────────────────
+// 🔹 Plotting
+// ───────────────────────────────────────────────
+plotshape(t_change_maxtrendpoint ? trend_line_maxtrendpoint : na, "Trend Change", style=shape.circle, location=location.absolute, color=t_color_maxtrendpoint, size=size.tiny)
+t_p_maxtrendpoint = plot(trend_line_maxtrendpoint, "Trend Line", color=t_change_maxtrendpoint ? color.new(t_color_maxtrendpoint, 100) : t_color_maxtrendpoint, linewidth=2)
+m_p_maxtrendpoint = plot(hl2, color=color(na), editable=false)
+fill(t_p_maxtrendpoint, m_p_maxtrendpoint, hl2, trend_line_maxtrendpoint, color.new(t_color_maxtrendpoint, 95), color.new(t_color_maxtrendpoint, 90))
+
+
+
+
+
+
+
+
+
+
+
+
+//=========================================================================================================================================================================================================
+//🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴 3 touhid
+//=========================================================================================================================================================================================================
+
+// This work is licensed under Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International
+// https://creativecommons.org/licenses/by-nc-sa/4.0/
+// © BigBeluga
+
+
+// //@version=6
+// indicator("Wolfe Waves [BigBeluga]", overlay = true, max_labels_count = 500, max_lines_count = 500)
+// plot(na, editable = false)
+
+// ＩＮＰＵＴＳ ――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――{
+sensetivity_WolfeWaves = input.int(defval=10, title="Sensetivity", display=_display)
+isbull_WolfeWaves      = input.string("Bullish", "Wave", options=["Bullish", "Bearish"], display=_display) == "Bullish"
+bearCol_WolfeWaves     = input.color(defval=color.orange, title="Bearish Color", display=_display)
+bullCol_WolfeWaves     = input.color(defval=color.lime, title="Bullish Color", display=_display)
+line_width_WolfeWaves  = input.int(defval=3, title="Line Width", display=_display)
+
+var int     index_low_WolfeWaves   = na
+var float   loww_WolfeWaves        = na
+var int     index_high_WolfeWaves  = na
+var float   highh_WolfeWaves       = na
+var bool    direction_WolfeWaves   = bool(na)
+var         isPh_WolfeWaves = false
+
+
+type pivot
+    float val
+    int indx
+    bool isPh_WolfeWaves
+var pivots_WolfeWaves = array.new<pivot>()
+
+
+var lastIndex_WolfeWaves = 0
+
+type wave
+    array<label> lbls
+    array<line> lines
+
+var draws_WolfeWaves = array.new<wave>()
+var duration_WolfeWaves = 0
+var isdetected_WolfeWaves = false
+var top_WolfeWaves = 0.0
+
+atr = ta.atr(200)
+
+// }
+
+
+// ＣＡＬＣＵＬＡＴＩＯＮＳ――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――{
+len = sensetivity_WolfeWaves
+float highest_WolfeWaves = ta.highest(len)
+float lowest_WolfeWaves  = ta.lowest(len)
+
+if pivots_WolfeWaves.size() > 5
+    pivots_WolfeWaves.shift()
+
+
+stl1_WolfeWaves   = line.style_solid
+
+if high == highest_WolfeWaves
+    direction_WolfeWaves := true
+if low  == lowest_WolfeWaves
+    direction_WolfeWaves := false
+
+if low[1] == lowest_WolfeWaves[1] and low > lowest_WolfeWaves
+    index_low_WolfeWaves := bar_index[1]
+    loww_WolfeWaves      := low[1]
+
+if high[1] == highest_WolfeWaves[1] and high < highest_WolfeWaves
+    index_high_WolfeWaves := bar_index[1]
+    highh_WolfeWaves      := high[1]
+
+if direction_WolfeWaves != direction_WolfeWaves[1] and direction_WolfeWaves
+    pivots_WolfeWaves.push(pivot.new(loww_WolfeWaves, index_low_WolfeWaves, false))
+
+if direction_WolfeWaves != direction_WolfeWaves[1] and not direction_WolfeWaves
+    pivots_WolfeWaves.push(pivot.new(highh_WolfeWaves, index_high_WolfeWaves, true))
+
+
+if pivots_WolfeWaves.size() == 5
+
+    piv1 = pivots_WolfeWaves.get(0)
+    piv2 = pivots_WolfeWaves.get(1)
+    piv3 = pivots_WolfeWaves.get(2)
+    piv4 = pivots_WolfeWaves.get(3)
+    piv5 = pivots_WolfeWaves.get(4)
+
+    isBearWWave = piv1.val > piv2.val and piv2.val < piv3.val and piv3.val > piv1.val and piv4.val > piv2.val and piv4.val < piv1.val and piv5.val > piv3.val
+    isBullWWave = piv1.val < piv2.val and piv2.val > piv4.val and piv3.val < piv1.val and piv4.val > piv1.val and piv5.val < piv3.val
+
+    cond = isbull_WolfeWaves ? isBullWWave : isBearWWave
+// }
+
+// ＰＬＯＴ ――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――{
+    if cond and not isdetected_WolfeWaves and (lastIndex_WolfeWaves != piv1.indx) and piv1.indx > lastIndex_WolfeWaves and barstate.isconfirmed
+
+        labels = array.new<label>()
+        lines = array.new<line>()
+
+        lastIndex_WolfeWaves := piv5.indx
+        for p in pivots_WolfeWaves
+            index = str.tostring(pivots_WolfeWaves.indexof(p)+1)
+            labels.push(label.new(p.indx, p.val, style = p.isPh_WolfeWaves ? "ldn" : "lup", color = color(na), text = index == "5" ? (isbull_WolfeWaves ? "\n5\nBULLISH" : "\nBEARISH\n5") : index))
+
+        color = isbull_WolfeWaves ? bullCol_WolfeWaves : bearCol_WolfeWaves
+
+        l1 = line.new(piv1.indx, piv1.val, piv2.indx, piv2.val, color = color, width = 4)
+        l2 = line.new(piv2.indx, piv2.val, piv3.indx, piv3.val, color = color, width = 4)
+        l3 = line.new(piv3.indx, piv3.val, piv4.indx, piv4.val, color = color, width = 4)
+        l4 = line.new(piv4.indx, piv4.val, piv5.indx, piv5.val, color = color, width = 4)
+
+        bars1 = piv4.indx - piv1.indx
+        slope1 = (piv1.val-piv4.val)/bars1
+
+        bars2 = piv3.indx - piv1.indx
+        slope2 = (piv3.val-piv1.val)/bars2
+        b2 = piv5.indx - piv3.indx
+
+        bars3 = piv4.indx - piv2.indx
+        slope3 = (piv4.val-piv2.val)/bars3
+        b3 = piv5.indx - piv4.indx
+
+
+        l5 = line.new(piv1.indx, piv1.val, piv4.indx+bars1, piv4.val-slope1*bars1, width = line_width_WolfeWaves, style = line.style_dashed, color = chart.fg_color)
+
+
+        l6 = line.new(piv1.indx, piv1.val, piv3.indx+b2, piv3.val+slope2*b2, width = line_width_WolfeWaves, style = line.style_dotted, color = chart.fg_color)
+        l7 = line.new(piv2.indx, piv2.val, piv4.indx+b3, piv4.val+slope3*b3, width = line_width_WolfeWaves, style = line.style_dotted, color = chart.fg_color)
+
+
+        lines.push(l1)
+        lines.push(l2)
+        lines.push(l3)
+        lines.push(l4)
+        lines.push(l5)
+
+        isdetected_WolfeWaves := true
+        duration_WolfeWaves := 0
+        top_WolfeWaves := piv5.val
+
+        draws_WolfeWaves.push(wave.new(labels, lines))
+
+if isdetected_WolfeWaves
+    duration_WolfeWaves += 1
+
+if duration_WolfeWaves == 50
+    isdetected_WolfeWaves := false
+
+
+crossUp_WolfeWaves = ta.crossunder(high, top_WolfeWaves)
+crossDn_WolfeWaves = ta.crossover(low, top_WolfeWaves)
+
+if duration_WolfeWaves < 15
+
+    cond = isbull_WolfeWaves ? crossUp_WolfeWaves : crossDn_WolfeWaves
+
+    if cond and top_WolfeWaves == top_WolfeWaves[1] and barstate.isconfirmed
+
+        d = draws_WolfeWaves.last()
+        for l in d.lines
+            l.set_color(color.red)
+
+        for l in d.lbls
+            l.delete()
+// }
+
+
+
+
+ 
+
+
+
+//=========================================================================================================================================================================================================
+//🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴
+//5 touhid
+//=========================================================================================================================================================================================================
+
+// // //touhid
+// // //@version=6
+// // indicator("TIM NEW PRO Scalper V1 NOV 2025",
+// //      overlay=true, max_bars_back=1000, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
+
+// // // ═════════ Core
+// // _display = display.all - display.status_line
+groupCore = "Core"
+atrLen    = input.int(14, "ATR Len", minval=1, group=groupCore, display=_display)
+atr_scalperpro       = ta.atr(atrLen)
+showVWAP  = input.bool(false, "Show Session VWAP", group=groupCore, display=_display)
+showOR    = input.bool(false, "Show Opening Range", group=groupCore, display=_display)
+orAutoK   = input.float(3.0, "OR: Auto K × TF minutes", step=0.5, group=groupCore, display=_display)
+orMin     = input.int(30, "OR: Manual minutes", minval=1, group=groupCore, display=_display)
+orMode    = input.string("Auto", "", options=["Auto","Manual"], group=groupCore, display=_display)
+
+
+tf_minutes() =>
+    float m = na
+    if timeframe.isseconds
+        m := math.max(1.0, timeframe.multiplier) / 60.0
+    else if timeframe.isminutes
+        m := timeframe.multiplier
+    else if timeframe.isdaily
+        m := 1440.0 * timeframe.multiplier
+    else if timeframe.isweekly
+        m := 10080.0 * timeframe.multiplier
+    else
+        m := 43200.0 * timeframe.multiplier
+    m
+
+float tfMin = tf_minutes()
+
+// ── Session-anchored VWAP (дневной якорь)
+var float cumPV = na
+var float cumV  = na
+var bool  newSess = false
+newSess := ta.change(time("D")) != 0
+
+if newSess or na(cumPV)
+    cumPV := 0
+    cumV  := 0
+cumPV += hlc3 * volume
+cumV  += volume
+vwap = cumV > 0 ? cumPV / cumV : na
+
+// ── Opening Range
+float orLenMin = orMode=="Auto" ? orAutoK*tfMin : orMin
+int   orBars   = math.max(1, int(math.ceil(orLenMin / math.max(tfMin, 1))))
+
+var float orH = na
+var float orL = na
+var int   bfo = 0
+
+if newSess
+    orH := na
+    orL := na
+    bfo := 0
+
+if bfo < orBars
+    orH := na(orH) ? high : math.max(orH, high)
+    orL := na(orL) ? low  : math.min(orL, low)
+    bfo += 1
+
+plot(showVWAP ? vwap : na, "VWAP", color=color.new(color.yellow, 0), linewidth=2)
+plot(showOR and bfo>0 ? orH : na, "OR High", color=color.new(color.orange, 60), linewidth=1, style=plot.style_linebr)
+plot(showOR and bfo>0 ? orL : na, "OR Low",  color=color.new(color.orange, 60), linewidth=1, style=plot.style_linebr)
+
+// ═════════ Trend Filter (EMA / EMA+ADX, HTF опционально)
+groupTrend  = "Trend Filter"
+trendMode   = input.string("Off", "Mode", options=["Off","EMA","EMA+ADX"], group=groupTrend, display=_display)
+useHTF      = input.bool(true, "Use HTF for filter", group=groupTrend, display=_display)
+tfHTF       = input.timeframe("60", "HTF timeframe", group=groupTrend, display=_display)
+emaFastLen  = input.int(34, "EMA Fast", minval=1, group=groupTrend, display=_display)
+emaSlowLen  = input.int(89, "EMA Slow", minval=2, group=groupTrend, display=_display)
+adxLen      = input.int(14, "ADX Len", minval=1, group=groupTrend, display=_display)
+adxThr      = input.float(18, "ADX ≥", step=0.5, group=groupTrend, display=_display)
+showTrendPl = input.bool(false, "Plot EMA filter", group=groupTrend, display=_display)
+
+
+// — безопасный ADX (Wilder), без ta.adx/ta.dx
+adxCalc(_len) =>
+    upMove   = high - high[1]
+    downMove = low[1] - low
+    plusDM   = (upMove > downMove and upMove > 0) ? upMove : 0.0
+    minusDM  = (downMove > upMove and downMove > 0) ? downMove : 0.0
+    tr   = math.max(high - low, math.max(math.abs(high - close[1]), math.abs(low - close[1])))
+    smTR = ta.rma(tr, _len)
+    smP  = ta.rma(plusDM, _len)
+    smM  = ta.rma(minusDM, _len)
+    plusDI  = smTR != 0 ? 100.0 * smP / smTR : 0.0
+    minusDI = smTR != 0 ? 100.0 * smM / smTR : 0.0
+    dx = (plusDI + minusDI != 0) ? 100.0 * math.abs(plusDI - minusDI) / (plusDI + minusDI) : 0.0
+    ta.rma(dx, _len)
+
+srcClose = useHTF ? request.security(syminfo.tickerid, tfHTF, close) : close
+emaF     = ta.ema(srcClose, emaFastLen)
+emaS     = ta.ema(srcClose, emaSlowLen)
+trendUp  = emaF > emaS
+adxTF    = useHTF ? request.security(syminfo.tickerid, tfHTF, adxCalc(adxLen)) : adxCalc(adxLen)
+
+longOK  = trendMode=="Off" ? true : trendMode=="EMA" ? trendUp : (trendUp and adxTF >= adxThr)
+shortOK = trendMode=="Off" ? true : trendMode=="EMA" ? not trendUp : ((not trendUp) and adxTF >= adxThr)
+
+plot(showTrendPl ? emaF : na, "EMA F", color=color.new(color.teal, 0))
+plot(showTrendPl ? emaS : na, "EMA S", color=color.new(color.orange, 0))
+
+// ═════════ Delta proxy (для пузырьков/плотностей)
+groupDelta = "Delta / Volume"
+deltaMode  = input.string("RangeWeighted", "Delta proxy", options=["RangeWeighted","CloseVsPrev","CloseVsOpen"], group=groupDelta, display = _display)
+
+rng = math.max(high - low, syminfo.mintick)
+dRW = rng > 0 ? volume * (close - open) / rng : 0
+dCP = close >= close[1] ? volume : -volume
+dCO = close >= open     ? volume : -volume
+delta = deltaMode=="RangeWeighted" ? dRW : deltaMode=="CloseVsOpen" ? dCO : dCP
+
+// ═════════ Bubbles
+groupBub = "Bubbles"
+showBub  = input.bool(false, "Show Bubbles (abs delta)", group=groupBub, display=_display)
+qbLen    = input.int(200, "Quantile lookback", minval=50, group=groupBub, display=_display)
+qbPct    = input.float(85, "Quantile %", step=0.5, minval=50, maxval=99.9, group=groupBub, display=_display)
+absDel = math.abs(delta)
+thrBub = ta.percentile_linear_interpolation(absDel, qbLen, qbPct)
+
+bubbleSize(r)=>
+    s = size.tiny
+    if r >= 3
+        s := size.huge
+    else if r >= 2.25
+        s := size.large
+    else if r >= 1.6
+        s := size.normal
+    else if r >= 1.1
+        s := size.small
+    s
+
+if showBub and absDel >= math.max(thrBub, 1)
+    ratio = absDel / math.max(thrBub, 1)
+    y  = delta>=0 ? low : high
+    c0 = delta>=0 ? color.lime : color.red
+    c  = color.new(c0, 85 - int(math.min(60.0, (ratio-1.0)*30.0)))
+    label.new(bar_index, y, "", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_circle, color=c, textcolor=c, size=bubbleSize(ratio))
+
+// ═════════ Zones x2 (midline + only-in-trend)
+groupZ = "Zones (AI-style, 2 pairs)"
+showZones      = input.bool(true, "Show Zones", group=groupZ, display=_display)
+zDepth         = input.float(0.6, "Zone depth × ATR", step=0.05, group=groupZ, display=_display)
+zExtend        = input.int(30, "Extend (bars)", minval=10, group=groupZ, display=_display)
+L1             = input.int(10, "Pivot A Left",  minval=2, group=groupZ, display=_display)
+R1             = input.int(10, "Pivot A Right", minval=2, group=groupZ, display=_display)
+L2             = input.int(5,  "Pivot B Left",  minval=2, group=groupZ, display=_display)
+R2             = input.int(5,  "Pivot B Right", minval=2, group=groupZ, display=_display)
+showZoneMid    = input.bool(true,  "Show zone midline", group=groupZ, display=_display)
+onlyTrendZone  = input.bool(false, "Show only in-trend zones", group=groupZ, display=_display)
+labSize        = input.string("Small", "Label size", options=["Tiny","Small","Normal"], group=groupZ, display=_display)
+_lsize  = labSize=="Tiny" ? size.tiny : labSize=="Small" ? size.small : size.normal
+
+colSupIn  = color.new(#E57373, 76)
+colSupOut = color.new(#E57373, 96)
+colSupBrI = color.new(#E57373, 25)
+colSupBrO = color.new(#E57373, 90)
+colDemIn  = color.new(#81C784, 76)
+colDemOut = color.new(#81C784, 96)
+colDemBrI = color.new(#81C784, 25)
+colDemBrO = color.new(#81C784, 90)
+colHide   = color.new(color.white, 100)
+midCol    = color.new(color.gray, 50)
+
+mkZone(_left, _top, _bot, isSupply, _right, inTrend) =>
+    color fill = isSupply ? (inTrend ? colSupIn : colSupOut) : (inTrend ? colDemIn : colDemOut)
+    color brd  = isSupply ? (inTrend ? colSupBrI : colSupBrO) : (inTrend ? colDemBrI : colDemBrO)
+    box.new(_left, _top, _right, _bot, xloc=xloc.bar_index, bgcolor=fill, border_color=brd)
+
+type PairState
+    box   sup
+    float supTop
+    float supBot
+    line  supMid
+    box   dem
+    float demTop
+    float demBot
+    line  demMid
+    int   supTouches
+    int   demTouches
+    bool  inSupPrev
+    bool  inDemPrev
+    label labSup
+    label labDem
+
+makeMidline(x0, mid) =>
+    line.new(x0, mid, x0 + zExtend, mid, xloc=xloc.bar_index, extend=extend.none, style=line.style_dashed, color=midCol, width=2)
+
+updatePair(ph, pl, R, PairState s, string tag) =>
+    box supRet = s.sup
+    float sTop = s.supTop
+    float sBot = s.supBot
+    line sMidL = s.supMid
+    box demRet = s.dem
+    float dTop = s.demTop
+    float dBot = s.demBot
+    line dMidL = s.demMid
+    int  supT  = s.supTouches
+    int  demT  = s.demTouches
+    bool wasS  = s.inSupPrev
+    bool wasD  = s.inDemPrev
+    label lSup = s.labSup
+    label lDem = s.labDem
+
+    if showZones and not na(ph)
+        sTop := ph
+        sBot := ph - zDepth * atr_scalperpro
+        int x0 = bar_index - R
+        if not na(supRet)
+            box.delete(supRet)
+        if not na(sMidL)
+            line.delete(sMidL)
+        supRet := mkZone(x0, sTop, sBot, true, bar_index + zExtend, shortOK)
+        if showZoneMid
+            sMidL := makeMidline(x0, (sTop + sBot) * 0.5)
+        supT := 0
+        wasS := false
+        if not na(lSup)
+            label.delete(lSup)
+        lSup := label.new(x0, sTop, "Supply " + tag + " (0)", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_left, size=_lsize, color=color.new(color.black, 100), textcolor=color.white)
+
+    if showZones and not na(pl)
+        dBot := pl
+        dTop := pl + zDepth * atr_scalperpro
+        int x1 = bar_index - R
+        if not na(demRet)
+            box.delete(demRet)
+        if not na(dMidL)
+            line.delete(dMidL)
+        demRet := mkZone(x1, dTop, dBot, false, bar_index + zExtend, longOK)
+        if showZoneMid
+            dMidL := makeMidline(x1, (dTop + dBot) * 0.5)
+        demT := 0
+        wasD := false
+        if not na(lDem)
+            label.delete(lDem)
+        lDem := label.new(x1, dBot, "Demand " + tag + " (0)", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_left, size=_lsize, color=color.new(color.black, 100), textcolor=color.white)
+
+    bool supInTrend = shortOK
+    bool demInTrend = longOK
+
+    if not na(supRet)
+        if onlyTrendZone and not supInTrend
+            box.set_bgcolor(supRet, colHide), box.set_border_color(supRet, colHide)
+            if not na(lSup)
+                label.delete(lSup), lSup := na
+            if not na(sMidL)
+                line.delete(sMidL), sMidL := na
+        else
+            box.set_bgcolor(supRet, supInTrend ? colSupIn : colSupOut)
+            box.set_border_color(supRet, supInTrend ? colSupBrI : colSupBrO)
+            if showZoneMid and na(sMidL)
+                sMidL := makeMidline(box.get_left(supRet), (sTop + sBot) * 0.5)
+            if na(lSup)
+                lSup := label.new(box.get_left(supRet), sTop, "Supply " + tag + " (" + str.tostring(supT) + ")", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_left, size=_lsize, color=color.new(color.black, 100), textcolor=color.white)
+
+    if not na(demRet)
+        if onlyTrendZone and not demInTrend
+            box.set_bgcolor(demRet, colHide), box.set_border_color(demRet, colHide)
+            if not na(lDem)
+                label.delete(lDem), lDem := na
+            if not na(dMidL)
+                line.delete(dMidL), dMidL := na
+        else
+            box.set_bgcolor(demRet, demInTrend ? colDemIn : colDemOut)
+            box.set_border_color(demRet, demInTrend ? colDemBrI : colDemBrO)
+            if showZoneMid and na(dMidL)
+                dMidL := makeMidline(box.get_left(demRet), (dTop + dBot) * 0.5)
+            if na(lDem)
+                lDem := label.new(box.get_left(demRet), dBot, "Demand " + tag + " (" + str.tostring(demT) + ")", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_left, size=_lsize, color=color.new(color.black, 100), textcolor=color.white)
+
+    bool inS = not na(sTop) and not na(sBot) and high >= sBot and low <= sTop
+    bool inD = not na(dTop) and not na(dBot) and high >= dBot and low <= dTop
+    if inS and not wasS
+        supT += 1
+    wasS := inS
+    if inD and not wasD
+        demT += 1
+    wasD := inD
+
+    if not na(lSup)
+        label.set_x(lSup, not na(supRet) ? box.get_left(supRet) : bar_index)
+        label.set_y(lSup, sTop)
+        label.set_text(lSup, "Supply " + tag + " (" + str.tostring(supT) + ")")
+    if not na(lDem)
+        label.set_x(lDem, not na(demRet) ? box.get_left(demRet) : bar_index)
+        label.set_y(lDem, dBot)
+        label.set_text(lDem, "Demand " + tag + " (" + str.tostring(demT) + ")")
+
+    PairState.new(supRet, sTop, sBot, sMidL, demRet, dTop, dBot, dMidL, supT, demT, wasS, wasD, lSup, lDem)
+
+// Глобальные состояния пар
+var PairState pairA = PairState.new(na, na, na, na, na, na, na, na, 0, 0, false, false, na, na)
+var PairState pairB = PairState.new(na, na, na, na, na, na, na, na, 0, 0, false, false, na, na)
+
+// Обновление пар
+phA = ta.pivothigh(high, L1, R1)
+plA = ta.pivotlow(low,  L1, R1)
+pairA := updatePair(phA, plA, R1, pairA, "A")
+
+phB = ta.pivothigh(high, L2, R2)
+plB = ta.pivotlow(low,  L2, R2)
+pairB := updatePair(phB, plB, R2, pairB, "B")
+
+// Продление вправо (боксы + midlines)
+extendBox(_b) =>
+    if not na(_b)
+        box.set_right(_b, bar_index + zExtend)
+extendLine(_l, y) =>
+    if not na(_l)
+        line.set_x2(_l, bar_index + zExtend)
+        if not na(y)
+            line.set_y1(_l, y), line.set_y2(_l, y)
+
+extendBox(pairA.sup), extendBox(pairA.dem), extendBox(pairB.sup), extendBox(pairB.dem)
+extendLine(pairA.supMid, na(pairA.supTop) or na(pairA.supBot) ? na : (pairA.supTop + pairA.supBot)*0.5)
+extendLine(pairA.demMid, na(pairA.demTop) or na(pairA.demBot) ? na : (pairA.demTop + pairA.demBot)*0.5)
+extendLine(pairB.supMid, na(pairB.supTop) or na(pairB.supBot) ? na : (pairB.supTop + pairB.supBot)*0.5)
+extendLine(pairB.demMid, na(pairB.demTop) or na(pairB.demBot) ? na : (pairB.demTop + pairB.demBot)*0.5)
+
+// ═════════ Subtle Densities
+groupDen     = "Densities (Subtle)"
+showDen      = input.bool(false, "Show Densities", group=groupDen, display=_display)
+denMetricSrc = input.string("AbsDelta", "Metric", options=["AbsDelta","Volume"], group=groupDen, display=_display)
+qLen         = input.int(200, "Quantile lookback", minval=50, group=groupDen, display=_display)
+qPct         = input.float(92, "Quantile %", step=0.5, minval=60, maxval=99.9, group=groupDen, display=_display)
+denDepth     = input.float(0.45, "Depth × ATR", step=0.05, group=groupDen, display=_display)
+denExtend    = input.int(150, "Extend (bars)", minval=10, group=groupDen, display=_display)
+mergeX       = input.float(0.30, "Merge if |Δprice| < ×ATR", step=0.05, group=groupDen, display=_display)
+volLen       = input.int(20, "Volume MA", group=groupDen, display=_display)
+breakMult    = input.float(1.2, "Delete if break vol > MA×", step=0.1, group=groupDen, display=_display)
+showMidLineD = input.bool(true, "Midline (dashed)", group=groupDen, display=_display)
+
+denMetric = denMetricSrc=="AbsDelta" ? math.abs(delta) : volume
+denThr    = ta.percentile_linear_interpolation(denMetric, qLen, qPct)
+volMA     = ta.sma(volume, volLen)
+
+var box[]  dBoxes = array.new_box()
+var line[] dLines = array.new_line()
+var float[] dTop  = array.new_float()
+var float[] dBot  = array.new_float()
+var float[] dMid  = array.new_float()
+var int[]   dEnd  = array.new_int()
+var int[]   dDir  = array.new_int()
+
+newDensity(mid, isDemand) =>
+    float half = atr_scalperpro * denDepth
+    float top  = mid + half
+    float bot  = mid - half
+    color fillCol = isDemand ? color.new(#4CAF50, 90) : color.new(#F44336, 90)
+    color brdCol  = isDemand ? color.new(#4CAF50, 60) : color.new(#F44336, 60)
+    box b = box.new(bar_index, top, bar_index, bot, xloc=xloc.bar_index, bgcolor=fillCol, border_color=brdCol)
+    line ln = na
+    if showMidLineD
+        ln := line.new(bar_index, mid, bar_index, mid, xloc=xloc.bar_index, extend=extend.right, color=color.new(color.gray, 50), style=line.style_dashed, width=1)
+    array.push(dBoxes, b), array.push(dLines, ln), array.push(dTop, top), array.push(dBot, bot), array.push(dMid, mid)
+    array.push(dEnd, bar_index + denExtend), array.push(dDir, isDemand ? 1 : -1)
+
+if showDen and denMetric >= denThr
+    mid = close
+    bool merged = false
+    sz = array.size(dBoxes)
+    if sz > 0
+        for i=0 to sz-1
+            if not merged and math.abs(mid - array.get(dMid, i)) <= atr_scalperpro*mergeX
+                array.set(dEnd, i, bar_index + denExtend)
+                merged := true
+    if not merged
+        newDensity(mid, delta>=0)
+
+sz2 = array.size(dBoxes)
+if sz2 > 0
+    for i = sz2-1 to 0
+        b   = array.get(dBoxes, i)
+        ln  = array.get(dLines, i)
+        top = array.get(dTop, i)
+        bot = array.get(dBot, i)
+        mid = array.get(dMid, i)
+        right = math.min(bar_index + 1, array.get(dEnd, i))
+        box.set_right(b, right)
+        if not na(ln)
+            line.set_x2(ln, right)
+            line.set_y1(ln, mid)
+            line.set_y2(ln, mid)
+        dir = array.get(dDir, i)
+        bool breakUp   = close > top and volume > volMA*breakMult
+        bool breakDown = close < bot and volume > volMA*breakMult
+        bool eaten = (dir==1 and breakDown) or (dir==-1 and breakUp)
+        if eaten or bar_index >= array.get(dEnd, i)
+            box.delete(b)
+            if not na(ln)
+                line.delete(ln)
+            array.remove(dBoxes, i), array.remove(dLines, i), array.remove(dTop, i), array.remove(dBot, i), array.remove(dMid, i), array.remove(dEnd, i), array.remove(dDir, i)
+
+
+
+
+
+
+
+
+
+
+
+//=========================================================================================================================================================================================================
+//🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴
+//6 touhid
+//=========================================================================================================================================================================================================
+
+
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © melodicfish
+
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © melodicfish
+
+// //@version=6
+// indicator('Hermonic ABC finder', shorttitle = 'ABC', overlay = true)
+// _display = display.none
+// ────────────────────────── INPUTS ──────────────────────────
+t_col_hermonic_abc = input.color(color.new(color.gray, 25), 'Trend Line Color', inline = '6', display = _display)
+tl_col_hermonic_abc = input.color(color.new(color.white, 100), 'Trade Line Color', inline = '6', display = _display)
+pl_colL_hermonic_abc = input.color(color.new(color.yellow, 0), 'Long Setup Line Color', inline = '5', display = _display)
+pl_colS_hermonic_abc = input.color(color.new(#ff933b, 0), 'Short Setup Line Color', inline = '5', display = _display)
+lab_colL_hermonic_abc = input.color(color.new(color.green, 0), 'Label Color Long Setup', inline = '4', display = _display)
+lab_colS_hermonic_abc = input.color(color.new(color.red, 0), 'Label Color Short Setup', inline = '4', display = _display)
+tarBox_col_hermonic_abc = input.color(color.new(color.green, 55), 'Target Box Color', inline = '7', display = _display)
+stopBox_col_hermonic_abc = input.color(color.new(color.red, 55), 'Stop Box Color', inline = '7', display = _display)
+
+barsR_hermonic_abc = 0
+barsL_hermonic_abc = input.int(10, 'Bars Back', tooltip = 'Number of bars left of the Pivot', display = _display)
+tl_wth_hermonic_abc = input.int(3, 'Trade Line Width', inline = '1', display = _display)
+extTradeL_hermonic_abc = input.bool(false, 'Extend Trade Line to Right', display = _display)
+pl_wth_hermonic_abc = input.int(4, 'ABC Line Width', inline = '1', display = _display)
+show_hermonic_abc = input.bool(false, 'Show Fib Lines', display = _display)
+useFibSetups_hermonic_abc = input.bool(false, 'Use Fib Based Trade Management', display = _display)
+
+// ────────────────────────── VARIABLES ──────────────────────────
+var pvl_col_hermonic_abc = color.new(color.blue, 100)
+var lastPivotType_hermonic_abc = 0
+var phIndex_hermonic_abc = 0
+var plIndex_hermonic_abc = 0
+var ph_hermonic_abc = 0.0
+var pl_hermonic_abc = 0.0
+var highp_hermonic_abc = 0.0
+var lowp_hermonic_abc = 0.0
+var lastLine_hermonic_abc = line.new(0, 0, 0, 0)
+
+var patL1L_hermonic_abc = line.new(0, 0, 0, 0, color = pl_colL_hermonic_abc, width = pl_wth_hermonic_abc)
+var patL2L_hermonic_abc = line.new(0, 0, 0, 0, color = pl_colL_hermonic_abc, width = pl_wth_hermonic_abc)
+var patL3L_hermonic_abc = line.new(0, 0, 0, 0, color = pl_colL_hermonic_abc, width = pl_wth_hermonic_abc)
+var patL1S_hermonic_abc = line.new(0, 0, 0, 0, color = pl_colS_hermonic_abc, width = pl_wth_hermonic_abc)
+var patL2S_hermonic_abc = line.new(0, 0, 0, 0, color = pl_colS_hermonic_abc, width = pl_wth_hermonic_abc)
+var patL3S_hermonic_abc = line.new(0, 0, 0, 0, color = pl_colS_hermonic_abc, width = pl_wth_hermonic_abc)
+
+var tradeLineL_hermonic_abc = line.new(0, 0, 0, 0, extend = extTradeL_hermonic_abc ? extend.right : extend.none, color = tl_col_hermonic_abc, width = tl_wth_hermonic_abc)
+var tradeLineS_hermonic_abc = line.new(0, 0, 0, 0, extend = extTradeL_hermonic_abc ? extend.right : extend.none, color = tl_col_hermonic_abc, width = tl_wth_hermonic_abc)
+
+var l0_hermonic_abc = line.new(0, 0, 0, 0, extend = extend.right, color = pvl_col_hermonic_abc, width = 1)
+var l1_hermonic_abc = line.new(0, 0, 0, 0, extend = extend.right, color = pvl_col_hermonic_abc, width = 1)
+var l2_hermonic_abc = line.new(0, 0, 0, 0, extend = extend.right, color = pvl_col_hermonic_abc, width = 1)
+var l3_hermonic_abc = line.new(0, 0, 0, 0, extend = extend.right, color = pvl_col_hermonic_abc, width = 1)
+var l4_hermonic_abc = line.new(0, 0, 0, 0, extend = extend.right, color = pvl_col_hermonic_abc, width = 1)
+
+var lines_hermonic_abc = array.new_line(5)
+array.set(lines_hermonic_abc, 0, l0_hermonic_abc)
+array.set(lines_hermonic_abc, 1, l1_hermonic_abc)
+array.set(lines_hermonic_abc, 2, l2_hermonic_abc)
+array.set(lines_hermonic_abc, 3, l3_hermonic_abc)
+array.set(lines_hermonic_abc, 4, l4_hermonic_abc)
+
+// === PIVOTS ===
+ph_hermonic_abc := ta.pivothigh(high, barsL_hermonic_abc, barsR_hermonic_abc)
+pl_hermonic_abc := ta.pivotlow(low, barsL_hermonic_abc, barsR_hermonic_abc)
+
+// Update holding variables
+if pl_hermonic_abc > 0
+    highp_hermonic_abc := ph_hermonic_abc
+    highp_hermonic_abc
+if pl_hermonic_abc > 0
+    lowp_hermonic_abc := pl_hermonic_abc
+    lowp_hermonic_abc
+
+// Get the new index
+phIndex_hermonic_abc := bool(ph_hermonic_abc) ? bar_index - barsR_hermonic_abc : phIndex_hermonic_abc[1]
+plIndex_hermonic_abc := bool(pl_hermonic_abc) ? bar_index - barsR_hermonic_abc : plIndex_hermonic_abc[1]
+
+// Update direction type
+lastPivotType_hermonic_abc := bool(ph_hermonic_abc) ? 1 : bool(pl_hermonic_abc) ? -1 : barstate.isfirst ? 0 : lastPivotType_hermonic_abc[1]
+
+
+
+// ─────────────── CREATE NEW LINE SET XY2 ───────────────
+if lastPivotType_hermonic_abc != lastPivotType_hermonic_abc[1] and lastPivotType_hermonic_abc == 1
+    line.set_x1(array.get(lines_hermonic_abc, 4), line.get_x2(array.get(lines_hermonic_abc, 1)) - 1)
+    line.set_y1(array.get(lines_hermonic_abc, 4), line.get_y2(array.get(lines_hermonic_abc, 1)))
+    line.set_x2(array.get(lines_hermonic_abc, 4), line.get_x2(array.get(lines_hermonic_abc, 1)) + 1)
+    line.set_y2(array.get(lines_hermonic_abc, 4), line.get_y2(array.get(lines_hermonic_abc, 1)))
+
+    lastLine_hermonic_abc := line.new(line.get_x1(lastLine_hermonic_abc), line.get_y1(lastLine_hermonic_abc), phIndex_hermonic_abc, high[bar_index - phIndex_hermonic_abc])
+
+
+    line.set_x1(array.get(lines_hermonic_abc, 1), line.get_x1(lastLine_hermonic_abc))
+    line.set_y1(array.get(lines_hermonic_abc, 1), line.get_y1(lastLine_hermonic_abc))
+    line.set_x2(array.get(lines_hermonic_abc, 1), line.get_x1(lastLine_hermonic_abc) + 1)
+    line.set_y2(array.get(lines_hermonic_abc, 1), line.get_y1(lastLine_hermonic_abc))
+    line.set_x1(array.get(lines_hermonic_abc, 0), line.get_x2(lastLine_hermonic_abc))
+    line.set_y1(array.get(lines_hermonic_abc, 0), line.get_y2(lastLine_hermonic_abc))
+    line.set_x2(array.get(lines_hermonic_abc, 0), line.get_x2(lastLine_hermonic_abc) + 1)
+    line.set_y2(array.get(lines_hermonic_abc, 0), line.get_y2(lastLine_hermonic_abc))
+    line.set_color(lastLine_hermonic_abc, t_col_hermonic_abc)
+
+
+// ─────────────── CREATE NEW LINE SET XY1 ───────────────
+if lastPivotType_hermonic_abc != lastPivotType_hermonic_abc[1] and lastPivotType_hermonic_abc == -1
+    line.set_x1(array.get(lines_hermonic_abc, 3), line.get_x2(array.get(lines_hermonic_abc, 2)) - 1)
+    line.set_y1(array.get(lines_hermonic_abc, 3), line.get_y2(array.get(lines_hermonic_abc, 2)))
+    line.set_x2(array.get(lines_hermonic_abc, 3), line.get_x2(array.get(lines_hermonic_abc, 2)) + 1)
+    line.set_y2(array.get(lines_hermonic_abc, 3), line.get_y2(array.get(lines_hermonic_abc, 2)))
+
+    lastLine_hermonic_abc := line.new(plIndex_hermonic_abc, low[bar_index - plIndex_hermonic_abc], line.get_x2(lastLine_hermonic_abc), line.get_y2(lastLine_hermonic_abc))
+
+
+    line.set_x1(array.get(lines_hermonic_abc, 0), line.get_x1(lastLine_hermonic_abc))
+    line.set_y1(array.get(lines_hermonic_abc, 0), line.get_y1(lastLine_hermonic_abc))
+    line.set_x2(array.get(lines_hermonic_abc, 0), line.get_x1(lastLine_hermonic_abc) + 1)
+    line.set_y2(array.get(lines_hermonic_abc, 0), line.get_y1(lastLine_hermonic_abc))
+    line.set_x1(array.get(lines_hermonic_abc, 2), line.get_x2(lastLine_hermonic_abc))
+    line.set_y1(array.get(lines_hermonic_abc, 2), line.get_y2(lastLine_hermonic_abc))
+    line.set_x2(array.get(lines_hermonic_abc, 2), line.get_x2(lastLine_hermonic_abc) + 1)
+    line.set_y2(array.get(lines_hermonic_abc, 2), line.get_y2(lastLine_hermonic_abc))
+    line.set_color(lastLine_hermonic_abc, t_col_hermonic_abc)
+
+
+// ─────────────── UPDATE TREND DOWN LINE ───────────────
+if lastPivotType_hermonic_abc == lastPivotType_hermonic_abc[1] and lastPivotType_hermonic_abc == -1 and pl_hermonic_abc < lowp_hermonic_abc[1]
+    line.set_x1(lastLine_hermonic_abc[1], plIndex_hermonic_abc)
+    line.set_y1(lastLine_hermonic_abc[1], low[bar_index - plIndex_hermonic_abc])
+    line.set_color(lastLine_hermonic_abc[1], t_col_hermonic_abc)
+
+    line.set_x1(array.get(lines_hermonic_abc, 0), line.get_x1(lastLine_hermonic_abc))
+    line.set_y1(array.get(lines_hermonic_abc, 0), line.get_y1(lastLine_hermonic_abc))
+    line.set_x2(array.get(lines_hermonic_abc, 0), line.get_x1(lastLine_hermonic_abc) + 1)
+    line.set_y2(array.get(lines_hermonic_abc, 0), line.get_y1(lastLine_hermonic_abc))
+
+
+// ─────────────── UPDATE TREND UP LINE ───────────────
+if lastPivotType_hermonic_abc == lastPivotType_hermonic_abc[1] and lastPivotType_hermonic_abc == 1 and ph_hermonic_abc > highp_hermonic_abc[1]
+    line.set_x2(lastLine_hermonic_abc[1], phIndex_hermonic_abc)
+    line.set_y2(lastLine_hermonic_abc[1], high[bar_index - phIndex_hermonic_abc])
+    line.set_color(lastLine_hermonic_abc[1], t_col_hermonic_abc)
+
+    line.set_x1(array.get(lines_hermonic_abc, 0), line.get_x2(lastLine_hermonic_abc))
+    line.set_y1(array.get(lines_hermonic_abc, 0), line.get_y2(lastLine_hermonic_abc))
+    line.set_x2(array.get(lines_hermonic_abc, 0), line.get_x2(lastLine_hermonic_abc) + 1)
+    line.set_y2(array.get(lines_hermonic_abc, 0), line.get_y2(lastLine_hermonic_abc))
+
+
+// ─────────────── LABELS AND TRADE VARIABLES ───────────────
+var s_lab_hermonic_abc = label.new(0, 0, text = 'Short Below Here', color = lab_colS_hermonic_abc, style = label.style_label_lower_right, textcolor = color.white)
+var l_lab_hermonic_abc = label.new(0, 0, text = 'Long Above Here', color = lab_colL_hermonic_abc, style = label.style_label_upper_right, textcolor = color.white)
+var lpl_hermonic_abc = 0.0
+var spl_hermonic_abc = 0.0
+var long_hermonic_abc = false
+var short_hermonic_abc = false
+var current_hermonic_abc = 0
+var currentIndex_hermonic_abc = 0
+var boxStart_hermonic_abc = 0
+var boxEnd_hermonic_abc = 0
+var patTop_hermonic_abc = 0.0
+var patBottom_hermonic_abc = 0.0
+
+
+// ─────────────── DRAW LONG ───────────────
+if barstate.isconfirmed and line.get_y1(array.get(lines_hermonic_abc, 3)) > line.get_y1(array.get(lines_hermonic_abc, 2)) and line.get_y1(array.get(lines_hermonic_abc, 2)) > line.get_y1(array.get(lines_hermonic_abc, 1)) and line.get_y1(array.get(lines_hermonic_abc, 1)) > line.get_y1(array.get(lines_hermonic_abc, 0))
+
+    line.set_xy1(patL1L_hermonic_abc, line.get_x1(array.get(lines_hermonic_abc, 3)), line.get_y1(array.get(lines_hermonic_abc, 3)))
+    line.set_xy2(patL1L_hermonic_abc, line.get_x1(array.get(lines_hermonic_abc, 1)), line.get_y1(array.get(lines_hermonic_abc, 1)))
+
+    line.set_xy1(patL2L_hermonic_abc, line.get_x1(array.get(lines_hermonic_abc, 1)), line.get_y1(array.get(lines_hermonic_abc, 1)))
+    line.set_xy2(patL2L_hermonic_abc, line.get_x1(array.get(lines_hermonic_abc, 2)), line.get_y1(array.get(lines_hermonic_abc, 2)))
+
+    line.set_xy1(patL3L_hermonic_abc, line.get_x1(array.get(lines_hermonic_abc, 2)), line.get_y1(array.get(lines_hermonic_abc, 2)))
+    line.set_xy2(patL3L_hermonic_abc, line.get_x1(array.get(lines_hermonic_abc, 0)), line.get_y1(array.get(lines_hermonic_abc, 0)))
+
+    line.set_xy1(tradeLineL_hermonic_abc, line.get_x1(array.get(lines_hermonic_abc, 1)), line.get_y1(array.get(lines_hermonic_abc, 1)))
+    line.set_xy2(tradeLineL_hermonic_abc, line.get_x1(array.get(lines_hermonic_abc, 0)) + 15, line.get_y1(array.get(lines_hermonic_abc, 1)))
+
+    label.set_xy(l_lab_hermonic_abc, line.get_x1(tradeLineL_hermonic_abc), line.get_y1(tradeLineL_hermonic_abc))
+    label.set_text(l_lab_hermonic_abc, 'Long Above ' + str.tostring(line.get_y1(tradeLineL_hermonic_abc)))
+
+    lpl_hermonic_abc := line.get_y1(tradeLineL_hermonic_abc)
+
+    if lpl_hermonic_abc[1] != lpl_hermonic_abc
+        alert('LONG SETUP DETECTED Long Above: ' + str.tostring(line.get_y1(tradeLineL_hermonic_abc)), alert.freq_once_per_bar)
+        current_hermonic_abc := 1
+        currentIndex_hermonic_abc := bar_index
+        currentIndex_hermonic_abc
+
+    boxStart_hermonic_abc := line.get_x1(tradeLineL_hermonic_abc)
+    boxEnd_hermonic_abc := line.get_x2(tradeLineL_hermonic_abc)
+    patTop_hermonic_abc := line.get_y1(patL1L_hermonic_abc)
+    patBottom_hermonic_abc := line.get_y2(patL1L_hermonic_abc) // line.get_y2(patL3L_hermonic_abc)
+    patBottom_hermonic_abc
+
+
+
+
+// ─────────────── DRAW SHORT ───────────────
+if barstate.isconfirmed and line.get_y1(array.get(lines_hermonic_abc, 4)) < line.get_y1(array.get(lines_hermonic_abc, 2)) and line.get_y1(array.get(lines_hermonic_abc, 1)) < line.get_y1(array.get(lines_hermonic_abc, 2)) and line.get_y1(array.get(lines_hermonic_abc, 2)) < line.get_y1(array.get(lines_hermonic_abc, 0)) and line.get_y1(array.get(lines_hermonic_abc, 1)) > line.get_y1(array.get(lines_hermonic_abc, 4))
+
+    line.set_xy1(patL1S_hermonic_abc, line.get_x1(array.get(lines_hermonic_abc, 4)), line.get_y1(array.get(lines_hermonic_abc, 4)))
+    line.set_xy2(patL1S_hermonic_abc, line.get_x1(array.get(lines_hermonic_abc, 2)), line.get_y1(array.get(lines_hermonic_abc, 2)))
+
+    line.set_xy1(patL2S_hermonic_abc, line.get_x1(array.get(lines_hermonic_abc, 2)), line.get_y1(array.get(lines_hermonic_abc, 2)))
+    line.set_xy2(patL2S_hermonic_abc, line.get_x1(array.get(lines_hermonic_abc, 1)), line.get_y1(array.get(lines_hermonic_abc, 1)))
+
+    line.set_xy1(patL3S_hermonic_abc, line.get_x1(array.get(lines_hermonic_abc, 1)), line.get_y1(array.get(lines_hermonic_abc, 1)))
+    line.set_xy2(patL3S_hermonic_abc, line.get_x1(array.get(lines_hermonic_abc, 0)), line.get_y1(array.get(lines_hermonic_abc, 0)))
+
+    line.set_xy1(tradeLineS_hermonic_abc, line.get_x1(array.get(lines_hermonic_abc, 2)), line.get_y1(array.get(lines_hermonic_abc, 2)))
+    line.set_xy2(tradeLineS_hermonic_abc, line.get_x1(array.get(lines_hermonic_abc, 0)) + 15, line.get_y1(array.get(lines_hermonic_abc, 2)))
+
+    label.set_xy(s_lab_hermonic_abc, line.get_x1(tradeLineS_hermonic_abc), line.get_y1(tradeLineS_hermonic_abc))
+    label.set_text(s_lab_hermonic_abc, 'Short Below ' + str.tostring(line.get_y1(tradeLineS_hermonic_abc)))
+
+    spl_hermonic_abc := line.get_y1(tradeLineS_hermonic_abc)
+
+    if spl_hermonic_abc[1] != spl_hermonic_abc
+        alert('SHORT SETUP DETECTED Short Below: ' + str.tostring(line.get_y1(tradeLineS_hermonic_abc)), alert.freq_once_per_bar)
+        current_hermonic_abc := -1
+        currentIndex_hermonic_abc := bar_index
+        currentIndex_hermonic_abc
+
+    boxStart_hermonic_abc := line.get_x1(tradeLineS_hermonic_abc)
+    boxEnd_hermonic_abc := line.get_x2(tradeLineS_hermonic_abc)
+    patTop_hermonic_abc := line.get_y1(patL1S_hermonic_abc)
+    patBottom_hermonic_abc := line.get_y2(patL1S_hermonic_abc) // line.get_y2(patL3S_hermonic_abc)
+    patBottom_hermonic_abc
+
+
+
+
+
+
+
+// // // ─────────────── TABLE & TRADE MANAGEMENT ───────────────
+// // t_percent_hermonic_abc = input(3.0, title = 'Target Percentage', inline = '3')
+// // s_percent_hermonic_abc = input(1.5, title = 'Stop Percentage', inline = '3')
+// // buff_hermonic_abc = input(0.005, title = 'Position Entry buffer amount', inline = '0')
+// // isVal_hermonic_abc = input(false, title = 'Is a Value?', inline = '0', tooltip = 'If enabled the script will interpret the value entered as a dollar value. Disabled it will be interpreted as a percentage value')
+
+// // var e_txt_hermonic_abc = ''
+// // var t_txt_hermonic_abc = ''
+// // var s_txt_hermonic_abc = ''
+
+// // var target_col_hermonic_abc = color.silver
+// // var stop_col_hermonic_abc = color.silver
+
+// // var t_hermonic_abc = table.new(position.bottom_right, 2, 3, bgcolor = #434651, frame_color = #434651, frame_width = 5, border_color = #434651, border_width = 1)
+// // table.cell(t_hermonic_abc, 0, 0, text = 'Entry', text_color = color.white)
+// // table.cell(t_hermonic_abc, 0, 1, text = 'Target', text_color = color.white)
+// // table.cell(t_hermonic_abc, 0, 2, text = 'Stop', text_color = color.white)
+
+// // var tar_hermonic_abc = 0.0
+// // var stop_hermonic_abc = 0.0
+// // var y1_hermonic_abc = 0.0
+
+// // if current_hermonic_abc == 1
+// //     if isVal_hermonic_abc
+// //         y1_hermonic_abc := line.get_y1(tradeLineL_hermonic_abc) + buff_hermonic_abc
+// //         y1_hermonic_abc
+// //     else
+// //         y1_hermonic_abc := line.get_y1(tradeLineL_hermonic_abc) * (1 + buff_hermonic_abc / 100)
+// //         y1_hermonic_abc
+
+// //     e_txt_hermonic_abc := str.tostring(close > 10 ? math.round(y1_hermonic_abc, 2) : y1_hermonic_abc)
+// //     tar_hermonic_abc := y1_hermonic_abc * (1 + t_percent_hermonic_abc / 100)
+// //     stop_hermonic_abc := y1_hermonic_abc * (1 - s_percent_hermonic_abc / 100)
+// //     t_txt_hermonic_abc := str.tostring(close > 10 ? math.round(tar_hermonic_abc, 2) : tar_hermonic_abc)
+// //     s_txt_hermonic_abc := str.tostring(close > 10 ? math.round(stop_hermonic_abc, 2) : stop_hermonic_abc)
+// //     target_col_hermonic_abc := lab_colL_hermonic_abc
+// //     stop_col_hermonic_abc := lab_colS_hermonic_abc
+// //     boxStart_hermonic_abc := line.get_x1(tradeLineL_hermonic_abc)
+// //     boxEnd_hermonic_abc := line.get_x2(tradeLineL_hermonic_abc)
+// //     boxEnd_hermonic_abc
+
+// // else if current_hermonic_abc == -1
+// //     if isVal_hermonic_abc
+// //         y1_hermonic_abc := line.get_y1(tradeLineS_hermonic_abc) - buff_hermonic_abc
+// //         y1_hermonic_abc
+// //     else
+// //         y1_hermonic_abc := line.get_y1(tradeLineS_hermonic_abc) * (1 - buff_hermonic_abc / 100)
+// //         y1_hermonic_abc
+
+// //     y1_hermonic_abc := close > 10 ? math.round(y1_hermonic_abc, 2) : y1_hermonic_abc
+// //     e_txt_hermonic_abc := str.tostring(y1_hermonic_abc)
+// //     stop_hermonic_abc := y1_hermonic_abc * (1 + s_percent_hermonic_abc / 100)
+// //     tar_hermonic_abc := y1_hermonic_abc * (1 - t_percent_hermonic_abc / 100)
+// //     s_txt_hermonic_abc := str.tostring(close > 10 ? math.round(stop_hermonic_abc, 2) : stop_hermonic_abc)
+// //     t_txt_hermonic_abc := str.tostring(close > 10 ? math.round(tar_hermonic_abc, 2) : tar_hermonic_abc)
+// //     target_col_hermonic_abc := lab_colS_hermonic_abc
+// //     stop_col_hermonic_abc := lab_colL_hermonic_abc
+// //     boxStart_hermonic_abc := line.get_x1(tradeLineS_hermonic_abc)
+// //     boxEnd_hermonic_abc := line.get_x2(tradeLineS_hermonic_abc)
+// //     boxEnd_hermonic_abc
+
+// // // Update table
+// // table.cell(t_hermonic_abc, 1, 0, text = e_txt_hermonic_abc, text_color = color.white)
+// // table.cell(t_hermonic_abc, 1, 1, text = t_txt_hermonic_abc, text_color = color.white)
+// // table.cell(t_hermonic_abc, 1, 2, text = s_txt_hermonic_abc, text_color = color.white)
+
+// // // Set cell colors
+// // table.cell_set_bgcolor(t_hermonic_abc, 0, 0, target_col_hermonic_abc)
+// // table.cell_set_bgcolor(t_hermonic_abc, 1, 0, target_col_hermonic_abc)
+// // table.cell_set_bgcolor(t_hermonic_abc, 0, 1, target_col_hermonic_abc)
+// // table.cell_set_bgcolor(t_hermonic_abc, 1, 1, target_col_hermonic_abc)
+// // table.cell_set_bgcolor(t_hermonic_abc, 0, 2, stop_col_hermonic_abc)
+// // table.cell_set_bgcolor(t_hermonic_abc, 1, 2, stop_col_hermonic_abc)
+
+// // // ─────────────── LINES AND BOXES ───────────────
+// // var tarLine_hermonic_abc = line.new(0, 0, 0, 0)
+// // var stopLine_hermonic_abc = line.new(0, 0, 0, 0)
+// // var entryLine_hermonic_abc = line.new(0, 0, 0, 0, color = color.white)
+
+// // var targetBox_hermonic_abc = box.new(0, 0, 0, 0, bgcolor = tarBox_col_hermonic_abc, border_color = color.white)
+// // var stopBox_hermonic_abc = box.new(0, 0, 0, 0, bgcolor = stopBox_col_hermonic_abc, border_color = color.white)
+
+// // if current_hermonic_abc == 1
+// //     box.set_left(targetBox_hermonic_abc, boxStart_hermonic_abc)
+// //     box.set_top(targetBox_hermonic_abc, tar_hermonic_abc)
+// //     box.set_right(targetBox_hermonic_abc, boxStart_hermonic_abc + 25)
+// //     box.set_bottom(targetBox_hermonic_abc, y1_hermonic_abc)
+
+// //     box.set_left(stopBox_hermonic_abc, boxStart_hermonic_abc)
+// //     box.set_top(stopBox_hermonic_abc, y1_hermonic_abc)
+// //     box.set_right(stopBox_hermonic_abc, boxStart_hermonic_abc + 25)
+// //     box.set_bottom(stopBox_hermonic_abc, stop_hermonic_abc)
+
+// // else if current_hermonic_abc == -1
+// //     box.set_left(targetBox_hermonic_abc, boxStart_hermonic_abc)
+// //     box.set_top(targetBox_hermonic_abc, y1_hermonic_abc)
+// //     box.set_right(targetBox_hermonic_abc, boxStart_hermonic_abc + 25)
+// //     box.set_bottom(targetBox_hermonic_abc, tar_hermonic_abc)
+
+// //     box.set_left(stopBox_hermonic_abc, boxStart_hermonic_abc)
+// //     box.set_top(stopBox_hermonic_abc, stop_hermonic_abc)
+// //     box.set_right(stopBox_hermonic_abc, boxStart_hermonic_abc + 25)
+// //     box.set_bottom(stopBox_hermonic_abc, y1_hermonic_abc)
+
+// // // ─────────────── FIBONACCI LINES ───────────────
+// // var fib1_hermonic_abc = line.new(0, 0, 0, 0, color = color.green)
+// // var fib2_hermonic_abc = line.new(0, 0, 0, 0, color = color.blue)
+// // var fib3_hermonic_abc = line.new(0, 0, 0, 0, color = color.orange)
+// // var fibStopLine_hermonic_abc = line.new(0, 0, 0, 0, color = color.red)
+// // var clear_col_hermonic_abc = color.new(color.white, 100)
+
+// // Fib_hermonic_abc(ratio_hermonic_abc) =>
+// //     valueRange_hermonic_abc = patTop_hermonic_abc - patBottom_hermonic_abc
+// //     patTop_hermonic_abc - valueRange_hermonic_abc * ratio_hermonic_abc
+
+// // line.set_xy1(fib1_hermonic_abc, boxStart_hermonic_abc, Fib_hermonic_abc(0.382))
+// // line.set_xy2(fib1_hermonic_abc, boxStart_hermonic_abc + 25, Fib_hermonic_abc(0.382))
+// // line.set_color(fib1_hermonic_abc, show_hermonic_abc ? color.green : clear_col_hermonic_abc)
+
+// // line.set_xy1(fib2_hermonic_abc, boxStart_hermonic_abc, Fib_hermonic_abc(0.5))
+// // line.set_xy2(fib2_hermonic_abc, boxStart_hermonic_abc + 25, Fib_hermonic_abc(0.5))
+// // line.set_color(fib2_hermonic_abc, show_hermonic_abc ? color.blue : clear_col_hermonic_abc)
+
+// // line.set_xy1(fib3_hermonic_abc, boxStart_hermonic_abc, Fib_hermonic_abc(0.618))
+// // line.set_xy2(fib3_hermonic_abc, boxStart_hermonic_abc + 25, Fib_hermonic_abc(0.618))
+// // line.set_color(fib3_hermonic_abc, show_hermonic_abc ? color.orange : clear_col_hermonic_abc)
+
+// // line.set_xy1(fibStopLine_hermonic_abc, boxStart_hermonic_abc, patBottom_hermonic_abc - (Fib_hermonic_abc(0.618) - patBottom_hermonic_abc))
+// // line.set_xy2(fibStopLine_hermonic_abc, boxStart_hermonic_abc + 25, patBottom_hermonic_abc - (Fib_hermonic_abc(0.618) - patBottom_hermonic_abc))
+// // line.set_color(fibStopLine_hermonic_abc, show_hermonic_abc ? color.red : clear_col_hermonic_abc)
+
+// // // Use Fib Setups if enabled
+// // if useFibSetups_hermonic_abc
+// //     if current_hermonic_abc == 1
+// //         box.set_top(targetBox_hermonic_abc, line.get_y1(fib1_hermonic_abc))
+// //         box.set_bottom(stopBox_hermonic_abc, line.get_y1(fibStopLine_hermonic_abc))
+// //     else if current_hermonic_abc == -1
+// //         box.set_bottom(targetBox_hermonic_abc, line.get_y1(fib1_hermonic_abc))
+// //         box.set_top(stopBox_hermonic_abc, line.get_y1(fibStopLine_hermonic_abc))
+
+
+
+
+
+
+
+//touhid
+
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © ChartPrime
+
+// //@version=6
+// indicator("Fibonacci Trend [ChartPrime]", overlay = true, max_lines_count = 500)
+
+// --------------------------------------------------------------------------------------------------------------------
+// 𝙐𝙎𝙀𝙍 𝙄𝙉𝙋𝙐𝙏𝙎
+// --------------------------------------------------------------------------------------------------------------------
+
+bool  trend_on_fibonanci_crtprime = input.bool(false, "Show Trend", inline = "trend", group = "Fibonacci Trend", display = _display)
+float trend__fibonanci_crtprime   = input.float(4, "Trend", step = 0.01, inline = "trend", group = "Fibonacci Trend", display = _display)
+color col1_fibonanci_crtprime     = input.color(#26905d, "", inline = "trend", group = "Fibonacci Trend", display = _display)
+color col2_fibonanci_crtprime     = input.color(#74286d, "", inline = "trend", group = "Fibonacci Trend", display = _display)
+
+int   extend_fibonanci_crtprime   = input.int(15, "Extend", group = "Fibonacci", inline = "1", display = _display)
+color fill_col_fibonanci_crtprime = input.color(#2689901c, "", group = "Fibonacci", inline = "1", display = _display)
+
+float v_236_fibonanci_crtprime = input.float(0.236, "1", display = _display) * 100
+float v_382_fibonanci_crtprime = input.float(0.382, "2", display = _display) * 100
+float v_618_fibonanci_crtprime = input.float(0.618, "3", display = _display) * 100
+float v_786_fibonanci_crtprime = input.float(0.786, "4", display = _display) * 100
+
+// --------------------------------------------------------------------------------------------------------------------
+// 𝙐𝘿𝙏
+// --------------------------------------------------------------------------------------------------------------------
+
+type data_fibonanci_crtprime
+    line fib05  = na
+    line fib0   = na
+    line fib236 = na
+    line fib382 = na
+    line fib618 = na
+    line fib786 = na
+    line fib_   = na
+    line fib_di = na
+
+    label H = na
+    label L = na
+
+    label L0   = na
+    label L236 = na
+    label L382 = na
+    label L618 = na
+    label L786 = na
+    label L_   = na
+
+var fib_d_fibonanci_crtprime = data_fibonanci_crtprime.new()
+
+// --------------------------------------------------------------------------------------------------------------------
+// 𝙄𝙉𝘿𝙄𝘾𝘼𝙏𝙊𝙍 𝘾𝘼𝙇𝘾𝙐𝙇𝘼𝙏𝙄𝙊𝙉𝙎
+// --------------------------------------------------------------------------------------------------------------------
+
+[supertrend_fibonanci_crtprime, direction_fibonanci_crtprime] = ta.supertrend(trend__fibonanci_crtprime, 25)
+
+draw_fibb_fibonanci_crtprime(trend_fibonanci_crtprime)=>
+    var h = float(na)
+    var l = float(na)
+    var hi = int(na)
+    var li = int(na)
+
+    var val_0 = float(na)
+    var val_ = float(na)
+
+    atr_fibonanci_crtprime = ta.atr(200)
+
+    // delete previous fibb
+    if trend_fibonanci_crtprime != trend_fibonanci_crtprime[1]
+        line.delete(fib_d_fibonanci_crtprime.fib_)
+        line.delete(fib_d_fibonanci_crtprime.fib0)
+        line.delete(fib_d_fibonanci_crtprime.fib05)
+        line.delete(fib_d_fibonanci_crtprime.fib_di)
+        line.delete(fib_d_fibonanci_crtprime.fib236)
+        line.delete(fib_d_fibonanci_crtprime.fib382)
+        line.delete(fib_d_fibonanci_crtprime.fib618)
+        line.delete(fib_d_fibonanci_crtprime.fib786)
+        label.delete(fib_d_fibonanci_crtprime.H)
+        label.delete(fib_d_fibonanci_crtprime.L)
+        label.delete(fib_d_fibonanci_crtprime.L0)
+        label.delete(fib_d_fibonanci_crtprime.L_)
+        label.delete(fib_d_fibonanci_crtprime.L236)
+        label.delete(fib_d_fibonanci_crtprime.L382)
+        label.delete(fib_d_fibonanci_crtprime.L618)
+        label.delete(fib_d_fibonanci_crtprime.L786)
+
+    // Create Fib Lines
+    if trend_fibonanci_crtprime != trend_fibonanci_crtprime[1] and trend_fibonanci_crtprime == -1
+        fib_d_fibonanci_crtprime.fib_ := line.new(bar_index, low, bar_index, low, color = chart.fg_color, width = 2)
+        fib_d_fibonanci_crtprime.fib0 := line.new(bar_index, high + atr_fibonanci_crtprime * 3, bar_index, high + atr_fibonanci_crtprime * 3, color = chart.fg_color, width = 2)
+
+    if trend_fibonanci_crtprime != trend_fibonanci_crtprime[1] and trend_fibonanci_crtprime == 1
+        fib_d_fibonanci_crtprime.fib_ := line.new(bar_index, high, bar_index, high, color = chart.fg_color, width = 2)
+        fib_d_fibonanci_crtprime.fib0 := line.new(bar_index, low - atr_fibonanci_crtprime * 3, bar_index, low - atr_fibonanci_crtprime * 3, color = chart.fg_color, width = 2)
+        fib_d_fibonanci_crtprime.fib_di := line.new(li, l, hi, h, style = line.style_dashed, color = chart.fg_color, width = 12)
+
+    // Extend fibb lines
+    if trend_fibonanci_crtprime == trend_fibonanci_crtprime[1]
+        if low < fib_d_fibonanci_crtprime.fib_.get_y1()
+            fib_d_fibonanci_crtprime.fib_.set_y1(low)
+            fib_d_fibonanci_crtprime.fib_.set_y2(low)
+
+        if high > fib_d_fibonanci_crtprime.fib0.get_y1()
+            fib_d_fibonanci_crtprime.fib0.set_y1(high)
+            fib_d_fibonanci_crtprime.fib0.set_y2(high)
+
+        if high == fib_d_fibonanci_crtprime.fib0.get_y1()
+            h := high
+            hi := bar_index
+            label.delete((fib_d_fibonanci_crtprime[1]).H)
+            fib_d_fibonanci_crtprime.H := label.new(hi, h, str.tostring(h, "#,###.####"), color = #15373b)
+
+        if low == fib_d_fibonanci_crtprime.fib_.get_y1()
+            l := low
+            li := bar_index
+            label.delete((fib_d_fibonanci_crtprime[1]).L)
+            fib_d_fibonanci_crtprime.L := label.new(li, l, str.tostring(l, "#,###.####"), style = label.style_label_up, color = #15373b)
+
+        fib_d_fibonanci_crtprime.fib_.set_x2(bar_index + extend_fibonanci_crtprime)
+        fib_d_fibonanci_crtprime.fib0.set_x2(bar_index + extend_fibonanci_crtprime)
+
+        line.delete((fib_d_fibonanci_crtprime[1]).fib_di)
+        fib_d_fibonanci_crtprime.fib_di := line.new(li, l, hi, h, style = line.style_dashed, color = chart.fg_color)
+
+        if fib_d_fibonanci_crtprime.fib_di.get_x1() < fib_d_fibonanci_crtprime.fib0.get_x1() or fib_d_fibonanci_crtprime.fib_di.get_x2() < fib_d_fibonanci_crtprime.fib0.get_x1()
+            line.delete(fib_d_fibonanci_crtprime.fib_di)
+
+        size_step = (fib_d_fibonanci_crtprime.fib0.get_y1() - fib_d_fibonanci_crtprime.fib_.get_y1()) / 100
+
+        line.delete((fib_d_fibonanci_crtprime[1]).fib05)
+        line.delete((fib_d_fibonanci_crtprime[1]).fib382)
+        line.delete((fib_d_fibonanci_crtprime[1]).fib236)
+        line.delete((fib_d_fibonanci_crtprime[1]).fib618)
+        line.delete((fib_d_fibonanci_crtprime[1]).fib786)
+
+        if trend_fibonanci_crtprime == -1
+            val_0 := fib_d_fibonanci_crtprime.fib0.get_y1()
+            val_  := fib_d_fibonanci_crtprime.fib_.get_y1()
+
+        if trend_fibonanci_crtprime == 1
+            val_0 := fib_d_fibonanci_crtprime.fib_.get_y1()
+            val_  := fib_d_fibonanci_crtprime.fib0.get_y1()
+
+        fib_d_fibonanci_crtprime.fib236 := line.new(fib_d_fibonanci_crtprime.fib0.get_x1(), val_0 - size_step * v_236_fibonanci_crtprime * trend_fibonanci_crtprime * -1, fib_d_fibonanci_crtprime.fib0.get_x2(), val_0 - size_step * v_236_fibonanci_crtprime * trend_fibonanci_crtprime * -1, color = chart.fg_color, width = 3)
+        fib_d_fibonanci_crtprime.fib382 := line.new(fib_d_fibonanci_crtprime.fib0.get_x1(), val_0 - size_step * v_382_fibonanci_crtprime * trend_fibonanci_crtprime * -1, fib_d_fibonanci_crtprime.fib0.get_x2(), val_0 - size_step * v_382_fibonanci_crtprime * trend_fibonanci_crtprime * -1, color = chart.fg_color, width = 3)
+        fib_d_fibonanci_crtprime.fib05  := line.new(fib_d_fibonanci_crtprime.fib0.get_x1(), val_0 - size_step * 50 * trend_fibonanci_crtprime * -1, fib_d_fibonanci_crtprime.fib0.get_x2(), val_0 - size_step * 50 * trend_fibonanci_crtprime * -1, color = color.new(chart.fg_color, 50), style = line.style_dotted, width = 3)
+        fib_d_fibonanci_crtprime.fib618 := line.new(fib_d_fibonanci_crtprime.fib0.get_x1(), val_0 - size_step * v_618_fibonanci_crtprime * trend_fibonanci_crtprime * -1, fib_d_fibonanci_crtprime.fib0.get_x2(), val_0 - size_step * v_618_fibonanci_crtprime * trend_fibonanci_crtprime * -1, color = chart.fg_color, width = 3)
+        fib_d_fibonanci_crtprime.fib786 := line.new(fib_d_fibonanci_crtprime.fib0.get_x1(), val_0 - size_step * v_786_fibonanci_crtprime * trend_fibonanci_crtprime * -1, fib_d_fibonanci_crtprime.fib0.get_x2(), val_0 - size_step * v_786_fibonanci_crtprime * trend_fibonanci_crtprime * -1, color = chart.fg_color, width = 3)
+
+        label.delete((fib_d_fibonanci_crtprime[1]).L0)
+        label.delete((fib_d_fibonanci_crtprime[1]).L_)
+        label.delete((fib_d_fibonanci_crtprime[1]).L236)
+        label.delete((fib_d_fibonanci_crtprime[1]).L382)
+        label.delete((fib_d_fibonanci_crtprime[1]).L618)
+        label.delete((fib_d_fibonanci_crtprime[1]).L786)
+
+        fib_d_fibonanci_crtprime.L0 := label.new(bar_index + extend_fibonanci_crtprime, val_0,  text = "0 DN " + str.tostring(val_0, "(#,###.####)"), textcolor = chart.fg_color, color = color.red, style = label.style_label_left)
+        fib_d_fibonanci_crtprime.L_ := label.new(bar_index + extend_fibonanci_crtprime, val_,   text = "1 UP " + str.tostring(val_, "(#,###.####)"), textcolor = chart.fg_color, color = color.red, style = label.style_label_left)
+        fib_d_fibonanci_crtprime.L236 := label.new(bar_index + extend_fibonanci_crtprime, fib_d_fibonanci_crtprime.fib236.get_y1(), text = str.tostring(v_236_fibonanci_crtprime / 100) + str.tostring(fib_d_fibonanci_crtprime.fib236.get_y1(), " (#,###.####)"), textcolor = chart.fg_color, color = color.red, style = label.style_label_left)
+        fib_d_fibonanci_crtprime.L382 := label.new(bar_index + extend_fibonanci_crtprime, fib_d_fibonanci_crtprime.fib382.get_y1(), text = str.tostring(v_382_fibonanci_crtprime / 100) + str.tostring(fib_d_fibonanci_crtprime.fib382.get_y1(), " (#,###.####)"), textcolor = chart.fg_color, color = color.red, style = label.style_label_left)
+        fib_d_fibonanci_crtprime.L618 := label.new(bar_index + extend_fibonanci_crtprime, fib_d_fibonanci_crtprime.fib618.get_y1(), text = str.tostring(v_618_fibonanci_crtprime / 100) + str.tostring(fib_d_fibonanci_crtprime.fib618.get_y1(), " (#,###.####)"), textcolor = chart.fg_color, color = color.red, style = label.style_label_left)
+        fib_d_fibonanci_crtprime.L786 := label.new(bar_index + extend_fibonanci_crtprime, fib_d_fibonanci_crtprime.fib786.get_y1(), text = str.tostring(v_786_fibonanci_crtprime / 100) + str.tostring(fib_d_fibonanci_crtprime.fib786.get_y1(), " (#,###.####)"), textcolor = chart.fg_color, color = color.red, style = label.style_label_left)
+
+        //linefill.new(fib_d_fibonanci_crtprime.fib618, fib_d_fibonanci_crtprime.fib786, fill_col_fibonanci_crtprime)
+       // linefill.new(fib_d_fibonanci_crtprime.fib05, fib_d_fibonanci_crtprime.fib786, fill_col_fibonanci_crtprime)
+
+// --------------------------------------------------------------------------------------------------------------------
+// 𝙑𝙄𝙎𝙐𝘼𝙇𝙄𝙕𝘼𝙏𝙄𝙊𝙉
+// --------------------------------------------------------------------------------------------------------------------
+
+draw_fibb_fibonanci_crtprime(direction_fibonanci_crtprime)
+
+//color_fibonanci_crtprime = trend_on_fibonanci_crtprime ? (direction_fibonanci_crtprime == 1 ? col2_fibonanci_crtprime : col1_fibonanci_crtprime) : na
+//p1_fibonanci_crtprime = plot(supertrend_fibonanci_crtprime, "Trend", color = direction_fibonanci_crtprime != direction_fibonanci_crtprime[1] ? na : color_fibonanci_crtprime, style = plot.style_linebr)
+p2_fibonanci_crtprime = plot(hl2, display = display.none)
+
+//fill(p1_fibonanci_crtprime, p2_fibonanci_crtprime, hl2, supertrend_fibonanci_crtprime, na, direction_fibonanci_crtprime != direction_fibonanci_crtprime[1] ? na : color.new(color_fibonanci_crtprime, 0))
+
+
+
+
+//https://www.tradingview.com/script/TMLC5Wma-Adaptive-Market-Profile-Auto-Detect-Dynamic-Activity-Zones/
+// @ Julien_Eche
+///*
+//Adaptive Market Profile is an advanced indicator that automatically detects and displays the most relevant trend 
+//channel and market profile for any asset and timeframe. Unlike standard regression channel tools, this script uses 
+//a fully adaptive approach to identify the optimal period, providing you with the channel that best fits
+// the current market dynamics. The calculation is based on maximizing the statistical significance of the 
+//trend using Pearson’s R coefficient, ensuring that the most relevant trend is always selected.
+//*/
+//@version=6
+// indicator('🔴 TIM NEW Adaptive Market Profile', shorttitle = "🔴 TIM NEW Adaptive Market Profile", overlay = true, max_bars_back = 5000)
+
+// _display = display.none
+useAdaptive_adaptive = input.bool(true, display = _display, title = "Automatic detection of optimal trend channel period")
+pI_adaptive = input.int(200, display = _display, title = "Manual channel period (bars)", minval = 2)
+devMultiplier_adaptive = input.float(2.0, display = _display, title = "Deviation Multiplier", minval = 0.1, step = 0.1)
+uL_adaptive = input.bool(true, display = _display, title = "Enable if chart is in logarithmic scale")
+
+regColor_adaptive = input.color(color.new(color.gray, 0), display = _display, title = "Channel Lines", inline = "reg_channel")
+regLineStyle_adaptive = input.string("Solid", display = _display, title = "", options = ["Solid", "Dotted", "Dashed"], inline = "reg_channel")
+regLineWidth_adaptive = input.int(3, display = _display, title = "", minval = 1, maxval = 4, inline = "reg_channel")
+
+fillColor_adaptive = input.color(color.new(#909497, 85), display = _display, title = "Channel Fill", inline = "channel_fill")
+
+showRegLine_adaptive = input.bool(true, display = _display, title = "Show Mid Line", inline = "reg_line")
+showMostActiveLines_adaptive = input.bool(true, display = _display, title = "", inline = "lvls")
+numActivityLines_adaptive = input.int(3, display = _display, title = "Show Most Active Lines", minval = 1, maxval = 5, inline = "lvls")
+
+showProfile_adaptive = input.bool(false, display = _display, title = "Show Profile", inline = "profile_labels")
+showLabels_adaptive = input.bool(false, display = _display, title = "Show Labels", inline = "profile_labels")
+
+activityMethod_adaptive = input.string("Volume", display = _display, title = "Calculation method", options = ["Touches", "Volume"])
+nFills_adaptive = input.int(23, display = _display, title = "Number of Profile Sections", minval = 2, maxval = 25)
+
+loActColor_adaptive = input.color(color.new(#00BBFF, 95), display = _display, title = "Low Activity", inline = "profile_color")
+hiActColor_adaptive = input.color(color.new(#00BBFF, 25), display = _display, title = "High Activity", inline = "profile_color")
+
+regLineColor_adaptive = input.color(color.new(color.gray, 0), display = _display, title = "", inline = "reg_line")
+regLineStyleOpt_adaptive = input.string("Dashed", display = _display, title = "", options = ["Solid", "Dotted", "Dashed"], inline = "reg_line")
+regLineWidthOpt_adaptive = input.int(3, display = _display, title = "", minval = 1, maxval = 4, inline = "reg_line")
+
+useCustomColor_adaptive = input.bool(true, display = _display, title = "", inline = "act_line")
+customColor_adaptive = input.color(color.new(#00BBFF, 50), display = _display, title = "Custom Active Line Color", inline = "act_line")
+actLineStyle_adaptive = input.string("Solid", display = _display, title = "", options = ["Solid", "Dotted", "Dashed"], inline = "act_line")
+actLineWidth_adaptive = input.int(3, display = _display, title = "", minval = 1, maxval = 5, inline = "act_line")
+
+maxProfileBars_adaptive = 25
+effectiveProfileBars_adaptive = math.max(numActivityLines_adaptive, math.min(nFills_adaptive, math.max(maxProfileBars_adaptive - (numActivityLines_adaptive - 2), 2)))
+
+srcATF_adaptive = close
+devMultATF_adaptive = devMultiplier_adaptive
+isLogATF_adaptive = uL_adaptive
+
+calcDevATF_adaptive(src_adaptive, len_adaptive) =>
+    float base_adaptive = isLogATF_adaptive ? math.log(src_adaptive) : src_adaptive
+    var int n1_adaptive = len_adaptive - 1
+    if barstate.islast
+        float sumX_adaptive = 0.0, sumXX_adaptive = 0.0, sumYX_adaptive = 0.0, sumY_adaptive = 0.0
+        for i_adaptive = 1 to len_adaptive by 1
+            float val_adaptive = base_adaptive[i_adaptive - 1]
+            sumX_adaptive += i_adaptive
+            sumXX_adaptive += i_adaptive * i_adaptive
+            sumYX_adaptive += i_adaptive * val_adaptive
+            sumY_adaptive += val_adaptive
+        float slope_adaptive = nz((len_adaptive * sumYX_adaptive - sumX_adaptive * sumY_adaptive) / (len_adaptive * sumXX_adaptive - sumX_adaptive * sumX_adaptive))
+        float avg_adaptive = sumY_adaptive / len_adaptive
+        float intercept_adaptive = avg_adaptive - slope_adaptive * sumX_adaptive / len_adaptive + slope_adaptive
+        float sumDev_adaptive = 0.0, sumDxx_adaptive = 0.0, sumDyy_adaptive = 0.0, sumDyx_adaptive = 0.0
+        float reg_adaptive = intercept_adaptive + slope_adaptive * n1_adaptive * 0.5
+        float sumSlope_adaptive = intercept_adaptive
+        for i_adaptive = 0 to n1_adaptive by 1
+            float v_adaptive = base_adaptive[i_adaptive]
+            float dxt_adaptive = v_adaptive - avg_adaptive
+            float dyt_adaptive = sumSlope_adaptive - reg_adaptive
+            v_adaptive := v_adaptive - sumSlope_adaptive
+            sumSlope_adaptive += slope_adaptive
+            sumDxx_adaptive += dxt_adaptive * dxt_adaptive
+            sumDyy_adaptive += dyt_adaptive * dyt_adaptive
+            sumDyx_adaptive += dxt_adaptive * dyt_adaptive
+            sumDev_adaptive += v_adaptive * v_adaptive
+        float unStdDev_adaptive = math.sqrt(sumDev_adaptive / n1_adaptive)
+        float divisor_adaptive = sumDxx_adaptive * sumDyy_adaptive
+        float r_adaptive = nz(sumDyx_adaptive / math.sqrt(divisor_adaptive))
+        [unStdDev_adaptive, r_adaptive, slope_adaptive, intercept_adaptive]
+    else
+        [na, na, na, na]
+
+
+[stdDev01_adaptive, pr01_adaptive, slope01_adaptive, int01_adaptive] = calcDevATF_adaptive(srcATF_adaptive, 50)
+[stdDev02_adaptive, pr02_adaptive, slope02_adaptive, int02_adaptive] = calcDevATF_adaptive(srcATF_adaptive, 60)
+[stdDev03_adaptive, pr03_adaptive, slope03_adaptive, int03_adaptive] = calcDevATF_adaptive(srcATF_adaptive, 70)
+[stdDev04_adaptive, pr04_adaptive, slope04_adaptive, int04_adaptive] = calcDevATF_adaptive(srcATF_adaptive, 80)
+[stdDev05_adaptive, pr05_adaptive, slope05_adaptive, int05_adaptive] = calcDevATF_adaptive(srcATF_adaptive, 90)
+[stdDev06_adaptive, pr06_adaptive, slope06_adaptive, int06_adaptive] = calcDevATF_adaptive(srcATF_adaptive, 100)
+[stdDev07_adaptive, pr07_adaptive, slope07_adaptive, int07_adaptive] = calcDevATF_adaptive(srcATF_adaptive, 115)
+[stdDev08_adaptive, pr08_adaptive, slope08_adaptive, int08_adaptive] = calcDevATF_adaptive(srcATF_adaptive, 130)
+[stdDev09_adaptive, pr09_adaptive, slope09_adaptive, int09_adaptive] = calcDevATF_adaptive(srcATF_adaptive, 145)
+[stdDev10_adaptive, pr10_adaptive, slope10_adaptive, int10_adaptive] = calcDevATF_adaptive(srcATF_adaptive, 160)
+[stdDev11_adaptive, pr11_adaptive, slope11_adaptive, int11_adaptive] = calcDevATF_adaptive(srcATF_adaptive, 180)
+[stdDev12_adaptive, pr12_adaptive, slope12_adaptive, int12_adaptive] = calcDevATF_adaptive(srcATF_adaptive, 200)
+[stdDev13_adaptive, pr13_adaptive, slope13_adaptive, int13_adaptive] = calcDevATF_adaptive(srcATF_adaptive, 220)
+[stdDev14_adaptive, pr14_adaptive, slope14_adaptive, int14_adaptive] = calcDevATF_adaptive(srcATF_adaptive, 250)
+[stdDev15_adaptive, pr15_adaptive, slope15_adaptive, int15_adaptive] = calcDevATF_adaptive(srcATF_adaptive, 280)
+[stdDev16_adaptive, pr16_adaptive, slope16_adaptive, int16_adaptive] = calcDevATF_adaptive(srcATF_adaptive, 310)
+[stdDev17_adaptive, pr17_adaptive, slope17_adaptive, int17_adaptive] = calcDevATF_adaptive(srcATF_adaptive, 340)
+[stdDev18_adaptive, pr18_adaptive, slope18_adaptive, int18_adaptive] = calcDevATF_adaptive(srcATF_adaptive, 370)
+[stdDev19_adaptive, pr19_adaptive, slope19_adaptive, int19_adaptive] = calcDevATF_adaptive(srcATF_adaptive, 400)
+
+
+
+var int detectedLongPeriod_adaptive = na
+var float detectedLongSlope_adaptive = na
+var float detectedLongIntercept_adaptive = na
+var float detectedLongStdDev_adaptive = na
+var float detectedLongPearson_adaptive = na
+
+if barstate.islast
+    float highestLong_adaptive = math.max(pr01_adaptive, pr02_adaptive, pr03_adaptive, pr04_adaptive, pr05_adaptive, pr06_adaptive, pr07_adaptive, pr08_adaptive, pr09_adaptive, pr10_adaptive, pr11_adaptive, pr12_adaptive, pr13_adaptive, pr14_adaptive, pr15_adaptive, pr16_adaptive, pr17_adaptive, pr18_adaptive, pr19_adaptive)
+
+    if highestLong_adaptive == pr01_adaptive
+        detectedLongPeriod_adaptive := 50
+        detectedLongSlope_adaptive := slope01_adaptive
+        detectedLongIntercept_adaptive := int01_adaptive
+        detectedLongStdDev_adaptive := stdDev01_adaptive
+        detectedLongPearson_adaptive := pr01_adaptive
+    else if highestLong_adaptive == pr02_adaptive
+        detectedLongPeriod_adaptive := 60
+        detectedLongSlope_adaptive := slope02_adaptive
+        detectedLongIntercept_adaptive := int02_adaptive
+        detectedLongStdDev_adaptive := stdDev02_adaptive
+        detectedLongPearson_adaptive := pr02_adaptive
+    else if highestLong_adaptive == pr03_adaptive
+        detectedLongPeriod_adaptive := 70
+        detectedLongSlope_adaptive := slope03_adaptive
+        detectedLongIntercept_adaptive := int03_adaptive
+        detectedLongStdDev_adaptive := stdDev03_adaptive
+        detectedLongPearson_adaptive := pr03_adaptive
+    else if highestLong_adaptive == pr04_adaptive
+        detectedLongPeriod_adaptive := 80
+        detectedLongSlope_adaptive := slope04_adaptive
+        detectedLongIntercept_adaptive := int04_adaptive
+        detectedLongStdDev_adaptive := stdDev04_adaptive
+        detectedLongPearson_adaptive := pr04_adaptive
+    else if highestLong_adaptive == pr05_adaptive
+        detectedLongPeriod_adaptive := 90
+        detectedLongSlope_adaptive := slope05_adaptive
+        detectedLongIntercept_adaptive := int05_adaptive
+        detectedLongStdDev_adaptive := stdDev05_adaptive
+        detectedLongPearson_adaptive := pr05_adaptive
+    else if highestLong_adaptive == pr06_adaptive
+        detectedLongPeriod_adaptive := 100
+        detectedLongSlope_adaptive := slope06_adaptive
+        detectedLongIntercept_adaptive := int06_adaptive
+        detectedLongStdDev_adaptive := stdDev06_adaptive
+        detectedLongPearson_adaptive := pr06_adaptive
+    else if highestLong_adaptive == pr07_adaptive
+        detectedLongPeriod_adaptive := 115
+        detectedLongSlope_adaptive := slope07_adaptive
+        detectedLongIntercept_adaptive := int07_adaptive
+        detectedLongStdDev_adaptive := stdDev07_adaptive
+        detectedLongPearson_adaptive := pr07_adaptive
+    else if highestLong_adaptive == pr08_adaptive
+        detectedLongPeriod_adaptive := 130
+        detectedLongSlope_adaptive := slope08_adaptive
+        detectedLongIntercept_adaptive := int08_adaptive
+        detectedLongStdDev_adaptive := stdDev08_adaptive
+        detectedLongPearson_adaptive := pr08_adaptive
+    else if highestLong_adaptive == pr09_adaptive
+        detectedLongPeriod_adaptive := 145
+        detectedLongSlope_adaptive := slope09_adaptive
+        detectedLongIntercept_adaptive := int09_adaptive
+        detectedLongStdDev_adaptive := stdDev09_adaptive
+        detectedLongPearson_adaptive := pr09_adaptive
+    else if highestLong_adaptive == pr10_adaptive
+        detectedLongPeriod_adaptive := 160
+        detectedLongSlope_adaptive := slope10_adaptive
+        detectedLongIntercept_adaptive := int10_adaptive
+        detectedLongStdDev_adaptive := stdDev10_adaptive
+        detectedLongPearson_adaptive := pr10_adaptive
+    else if highestLong_adaptive == pr11_adaptive
+        detectedLongPeriod_adaptive := 180
+        detectedLongSlope_adaptive := slope11_adaptive
+        detectedLongIntercept_adaptive := int11_adaptive
+        detectedLongStdDev_adaptive := stdDev11_adaptive
+        detectedLongPearson_adaptive := pr11_adaptive
+    else if highestLong_adaptive == pr12_adaptive
+        detectedLongPeriod_adaptive := 200
+        detectedLongSlope_adaptive := slope12_adaptive
+        detectedLongIntercept_adaptive := int12_adaptive
+        detectedLongStdDev_adaptive := stdDev12_adaptive
+        detectedLongPearson_adaptive := pr12_adaptive
+    else if highestLong_adaptive == pr13_adaptive
+        detectedLongPeriod_adaptive := 220
+        detectedLongSlope_adaptive := slope13_adaptive
+        detectedLongIntercept_adaptive := int13_adaptive
+        detectedLongStdDev_adaptive := stdDev13_adaptive
+        detectedLongPearson_adaptive := pr13_adaptive
+    else if highestLong_adaptive == pr14_adaptive
+        detectedLongPeriod_adaptive := 250
+        detectedLongSlope_adaptive := slope14_adaptive
+        detectedLongIntercept_adaptive := int14_adaptive
+        detectedLongStdDev_adaptive := stdDev14_adaptive
+        detectedLongPearson_adaptive := pr14_adaptive
+    else if highestLong_adaptive == pr15_adaptive
+        detectedLongPeriod_adaptive := 280
+        detectedLongSlope_adaptive := slope15_adaptive
+        detectedLongIntercept_adaptive := int15_adaptive
+        detectedLongStdDev_adaptive := stdDev15_adaptive
+        detectedLongPearson_adaptive := pr15_adaptive
+    else if highestLong_adaptive == pr16_adaptive
+        detectedLongPeriod_adaptive := 310
+        detectedLongSlope_adaptive := slope16_adaptive
+        detectedLongIntercept_adaptive := int16_adaptive
+        detectedLongStdDev_adaptive := stdDev16_adaptive
+        detectedLongPearson_adaptive := pr16_adaptive
+    else if highestLong_adaptive == pr17_adaptive
+        detectedLongPeriod_adaptive := 340
+        detectedLongSlope_adaptive := slope17_adaptive
+        detectedLongIntercept_adaptive := int17_adaptive
+        detectedLongStdDev_adaptive := stdDev17_adaptive
+        detectedLongPearson_adaptive := pr17_adaptive
+    else if highestLong_adaptive == pr18_adaptive
+        detectedLongPeriod_adaptive := 370
+        detectedLongSlope_adaptive := slope18_adaptive
+        detectedLongIntercept_adaptive := int18_adaptive
+        detectedLongStdDev_adaptive := stdDev18_adaptive
+        detectedLongPearson_adaptive := pr18_adaptive
+    else
+        detectedLongPeriod_adaptive := 400
+        detectedLongSlope_adaptive := slope19_adaptive
+        detectedLongIntercept_adaptive := int19_adaptive
+        detectedLongStdDev_adaptive := stdDev19_adaptive
+        detectedLongPearson_adaptive := pr19_adaptive
+finalPeriod_adaptive = useAdaptive_adaptive ? detectedLongPeriod_adaptive : pI_adaptive
+
+
+eS_adaptive = extend.right
+lI_adaptive = math.min(bar_index + 1, finalPeriod_adaptive)
+
+formatNumber_adaptive(num_adaptive) =>
+    if num_adaptive >= 1000000
+        str.tostring(math.round(num_adaptive / 1000000, 2)) + 'M'
+    else if num_adaptive >= 1000
+        str.tostring(math.round(num_adaptive / 1000, 2)) + 'K'
+    else
+        str.tostring(num_adaptive)
+
+f_adjust_adaptive(p_adaptive) =>
+    uL_adaptive ? math.log(p_adaptive) : p_adaptive
+
+f_unadjust_adaptive(p_adaptive) =>
+    uL_adaptive ? math.exp(p_adaptive) : p_adaptive
+
+cS_adaptive(len_adaptive) =>
+    if not barstate.islast or len_adaptive <= 1
+        [float(na), float(na), float(na)]
+    else
+        sX_adaptive = 0.0
+        sY_adaptive = 0.0
+        sXS_adaptive = 0.0
+        sXY_adaptive = 0.0
+        for i_adaptive = 0 to len_adaptive - 1 by 1
+            v_adaptive = f_adjust_adaptive(close[i_adaptive])
+            p_adaptive = i_adaptive + 1.0
+            sX_adaptive := sX_adaptive + p_adaptive
+            sY_adaptive := sY_adaptive + v_adaptive
+            sXS_adaptive := sXS_adaptive + p_adaptive * p_adaptive
+            sXY_adaptive := sXY_adaptive + v_adaptive * p_adaptive
+            sXY_adaptive
+        sl_adaptive = (len_adaptive * sXY_adaptive - sX_adaptive * sY_adaptive) / (len_adaptive * sXS_adaptive - sX_adaptive * sX_adaptive)
+        av_adaptive = sY_adaptive / len_adaptive
+        ic_adaptive = av_adaptive - sl_adaptive * sX_adaptive / len_adaptive + sl_adaptive
+        [sl_adaptive, av_adaptive, ic_adaptive]
+
+
+[s_adaptive, a_adaptive, i_adaptive] = cS_adaptive(lI_adaptive)
+sP_adaptive = f_unadjust_adaptive(i_adaptive + s_adaptive * (lI_adaptive - 1))
+eP_adaptive = f_unadjust_adaptive(i_adaptive)
+
+var float uSP_adaptive = na
+var float uEP_adaptive = na
+var float lSP_adaptive = na
+var float lEP_adaptive = na
+var line bL_adaptive = na
+
+if showRegLine_adaptive
+    if na(bL_adaptive) and not na(sP_adaptive)
+        bL_adaptive := line.new(bar_index - lI_adaptive + 1, sP_adaptive, bar_index, eP_adaptive, width = regLineWidthOpt_adaptive, extend = eS_adaptive, color = regLineColor_adaptive, style = regLineStyleOpt_adaptive == 'Solid' ? line.style_solid : regLineStyleOpt_adaptive == 'Dotted' ? line.style_dotted : line.style_dashed)
+        bL_adaptive
+    else
+        line.set_xy1(bL_adaptive, bar_index - lI_adaptive + 1, sP_adaptive)
+        line.set_xy2(bL_adaptive, bar_index, eP_adaptive)
+        line.set_color(bL_adaptive, regLineColor_adaptive)
+        line.set_style(bL_adaptive, regLineStyleOpt_adaptive == 'Solid' ? line.style_solid : regLineStyleOpt_adaptive == 'Dotted' ? line.style_dotted : line.style_dashed)
+        line.set_width(bL_adaptive, regLineWidthOpt_adaptive)
+else
+    line.delete(bL_adaptive)
+
+
+cD_adaptive(len_adaptive, sl_adaptive, av_adaptive, ic_adaptive) =>
+    uD_adaptive = 0.0
+    dD_adaptive = 0.0
+    sDA_adaptive = 0.0
+    dxx_adaptive = 0.0
+    dyy_adaptive = 0.0
+    dxy_adaptive = 0.0
+    per_adaptive = len_adaptive - 1
+    dY_adaptive = ic_adaptive + sl_adaptive * per_adaptive / 2
+    v_adaptive = ic_adaptive
+    for j_adaptive = 0 to per_adaptive by 1
+        pr_adaptive = f_adjust_adaptive(high[j_adaptive]) - v_adaptive
+        if pr_adaptive > uD_adaptive
+            uD_adaptive := pr_adaptive
+            uD_adaptive
+        pr_adaptive := v_adaptive - f_adjust_adaptive(low[j_adaptive])
+        if pr_adaptive > dD_adaptive
+            dD_adaptive := pr_adaptive
+            dD_adaptive
+        pr_adaptive := f_adjust_adaptive(close[j_adaptive])
+        dx_adaptive = pr_adaptive - av_adaptive
+        dy_adaptive = v_adaptive - dY_adaptive
+        pr_adaptive := pr_adaptive - v_adaptive
+        sDA_adaptive := sDA_adaptive + pr_adaptive * pr_adaptive
+        dxx_adaptive := dxx_adaptive + dx_adaptive * dx_adaptive
+        dyy_adaptive := dyy_adaptive + dy_adaptive * dy_adaptive
+        dxy_adaptive := dxy_adaptive + dx_adaptive * dy_adaptive
+        v_adaptive := v_adaptive + sl_adaptive
+        v_adaptive
+    sD_adaptive = math.sqrt(sDA_adaptive / (per_adaptive == 0 ? 1 : per_adaptive))
+    pR_adaptive = dxx_adaptive == 0 or dyy_adaptive == 0 ? 0 : dxy_adaptive / math.sqrt(dxx_adaptive * dyy_adaptive)
+    [sD_adaptive, pR_adaptive, uD_adaptive, dD_adaptive]
+
+[sD_adaptive, pR_adaptive, uD_adaptive, dD_adaptive] = cD_adaptive(lI_adaptive, s_adaptive, a_adaptive, i_adaptive)
+
+applyDeviation_adaptive(baseValue_adaptive, deviation_adaptive) =>
+    f_unadjust_adaptive(f_adjust_adaptive(baseValue_adaptive) + deviation_adaptive)
+
+uSP_adaptive := applyDeviation_adaptive(sP_adaptive, devMultiplier_adaptive * sD_adaptive)
+uEP_adaptive := applyDeviation_adaptive(eP_adaptive, devMultiplier_adaptive * sD_adaptive)
+lSP_adaptive := applyDeviation_adaptive(sP_adaptive, -devMultiplier_adaptive * sD_adaptive)
+lEP_adaptive := applyDeviation_adaptive(eP_adaptive, -devMultiplier_adaptive * sD_adaptive)
+
+var line u_adaptive = na
+var line l_adaptive = na
+
+if na(u_adaptive) and not na(uSP_adaptive)
+    u_adaptive := line.new(bar_index - lI_adaptive + 1, uSP_adaptive, bar_index, uEP_adaptive, width = regLineWidth_adaptive, extend = eS_adaptive, color = regColor_adaptive, style = regLineStyle_adaptive == 'Solid' ? line.style_solid : regLineStyle_adaptive == 'Dotted' ? line.style_dotted : line.style_dashed)
+    u_adaptive
+else
+    line.set_xy1(u_adaptive, bar_index - lI_adaptive + 1, uSP_adaptive)
+    line.set_xy2(u_adaptive, bar_index, uEP_adaptive)
+    line.set_color(u_adaptive, regColor_adaptive)
+    line.set_style(u_adaptive, regLineStyle_adaptive == 'Solid' ? line.style_solid : regLineStyle_adaptive == 'Dotted' ? line.style_dotted : line.style_dashed)
+    line.set_width(u_adaptive, regLineWidth_adaptive)
+
+if na(l_adaptive) and not na(lSP_adaptive)
+    l_adaptive := line.new(bar_index - lI_adaptive + 1, lSP_adaptive, bar_index, lEP_adaptive, width = regLineWidth_adaptive, extend = eS_adaptive, color = regColor_adaptive, style = regLineStyle_adaptive == 'Solid' ? line.style_solid : regLineStyle_adaptive == 'Dotted' ? line.style_dotted : line.style_dashed)
+    l_adaptive
+else
+    line.set_xy1(l_adaptive, bar_index - lI_adaptive + 1, lSP_adaptive)
+    line.set_xy2(l_adaptive, bar_index, lEP_adaptive)
+    line.set_color(l_adaptive, regColor_adaptive)
+    line.set_style(l_adaptive, regLineStyle_adaptive == 'Solid' ? line.style_solid : regLineStyle_adaptive == 'Dotted' ? line.style_dotted : line.style_dashed)
+    line.set_width(l_adaptive, regLineWidth_adaptive)
+
+linefill.new(u_adaptive, showRegLine_adaptive ? bL_adaptive : l_adaptive, color = fillColor_adaptive)
+if showRegLine_adaptive
+    linefill.new(bL_adaptive, l_adaptive, color = fillColor_adaptive)
+
+var label pL_adaptive = na
+label.delete(pL_adaptive[1])
+if not na(pR_adaptive)
+    pL_adaptive := label.new(bar_index - lI_adaptive + 1, lSP_adaptive, str.tostring(pR_adaptive, '#.###'), color = color.new(color.white, 100), textcolor = color.gray, size = size.normal, style = label.style_label_up)
+    pL_adaptive
+
+calcLineValue_adaptive(startY_adaptive, endY_adaptive, currentBar_adaptive, totalBars_adaptive) =>
+    f_unadjust_adaptive(f_adjust_adaptive(startY_adaptive) + (f_adjust_adaptive(endY_adaptive) - f_adjust_adaptive(startY_adaptive)) * currentBar_adaptive / totalBars_adaptive)
+
+color_from_gradient_adaptive(percent_adaptive, color1_adaptive, color2_adaptive) =>
+    r_adaptive = color.r(color1_adaptive) + (color.r(color2_adaptive) - color.r(color1_adaptive)) * percent_adaptive
+    g_adaptive = color.g(color1_adaptive) + (color.g(color2_adaptive) - color.g(color1_adaptive)) * percent_adaptive
+    b_adaptive = color.b(color1_adaptive) + (color.b(color2_adaptive) - color.b(color1_adaptive)) * percent_adaptive
+    t_adaptive = color.t(color1_adaptive) + (color.t(color2_adaptive) - color.t(color1_adaptive)) * percent_adaptive
+    color.rgb(r_adaptive, g_adaptive, b_adaptive, t_adaptive)
+
+var counts_adaptive = array.new_float(nFills_adaptive, 0.0)
+var activityLines_adaptive = array.new_line(numActivityLines_adaptive)
+var profileFills_adaptive = array.new_linefill(nFills_adaptive)
+var countLabels_adaptive = array.new_label(numActivityLines_adaptive)
+
+
+if barstate.islast
+    array.clear(counts_adaptive)
+
+    for actLine_adaptive in activityLines_adaptive
+        line.delete(actLine_adaptive)
+    array.clear(activityLines_adaptive)
+
+    for cl_adaptive in countLabels_adaptive
+        label.delete(cl_adaptive)
+    array.clear(countLabels_adaptive)
+
+    for pf_adaptive in profileFills_adaptive
+        linefill.delete(pf_adaptive)
+    array.clear(profileFills_adaptive)
+
+    for idx1_adaptive = 0 to nFills_adaptive - 1 by 1
+        y1_top_adaptive = calcLineValue_adaptive(lSP_adaptive, uSP_adaptive, idx1_adaptive, nFills_adaptive)
+        y1_bottom_adaptive = calcLineValue_adaptive(lSP_adaptive, uSP_adaptive, idx1_adaptive + 1, nFills_adaptive)
+        y2_top_adaptive = calcLineValue_adaptive(lEP_adaptive, uEP_adaptive, idx1_adaptive, nFills_adaptive)
+        y2_bottom_adaptive = calcLineValue_adaptive(lEP_adaptive, uEP_adaptive, idx1_adaptive + 1, nFills_adaptive)
+        y1_mid_adaptive = (y1_top_adaptive + y1_bottom_adaptive) / 2
+        y2_mid_adaptive = (y2_top_adaptive + y2_bottom_adaptive) / 2
+        count_adaptive = 0.0
+
+        for j_adaptive = 0 to lI_adaptive - 1 by 1
+            lineValue_adaptive = calcLineValue_adaptive(y1_mid_adaptive, y2_mid_adaptive, j_adaptive, lI_adaptive - 1)
+            if activityMethod_adaptive == 'Touches'
+                if low[lI_adaptive - 1 - j_adaptive] <= lineValue_adaptive and high[lI_adaptive - 1 - j_adaptive] >= lineValue_adaptive
+                    count_adaptive := count_adaptive + 1.0
+                    count_adaptive
+            else
+                if low[lI_adaptive - 1 - j_adaptive] <= lineValue_adaptive and high[lI_adaptive - 1 - j_adaptive] >= lineValue_adaptive
+                    count_adaptive := count_adaptive + volume[lI_adaptive - 1 - j_adaptive]
+                    count_adaptive
+        array.push(counts_adaptive, count_adaptive)
+
+    maxCount_adaptive = array.max(counts_adaptive)
+    sortedIndices_adaptive = array.sort_indices(counts_adaptive, order.descending)
+    var float activitySlope_adaptive = 0.0
+    minActivityThreshold_adaptive = maxCount_adaptive * 0.1
+    displayedActivityLines_adaptive = 0
+
+
+    index_adaptive = array.get(sortedIndices_adaptive, 0)
+    actY1_adaptive = calcLineValue_adaptive(lSP_adaptive, uSP_adaptive, index_adaptive + 0.5, nFills_adaptive)
+    actY2_adaptive = calcLineValue_adaptive(lEP_adaptive, uEP_adaptive, index_adaptive + 0.5, nFills_adaptive)
+    activitySlope_adaptive := (f_adjust_adaptive(actY2_adaptive) - f_adjust_adaptive(actY1_adaptive)) / (bar_index - (bar_index - lI_adaptive + 1))
+
+    if showMostActiveLines_adaptive
+        for idx2_adaptive = 0 to nFills_adaptive - 1 by 1
+            if displayedActivityLines_adaptive >= numActivityLines_adaptive
+                break
+            index_adaptive := array.get(sortedIndices_adaptive, idx2_adaptive)
+            count_adaptive = array.get(counts_adaptive, index_adaptive)
+            if count_adaptive >= minActivityThreshold_adaptive
+                actY1_adaptive := calcLineValue_adaptive(lSP_adaptive, uSP_adaptive, index_adaptive + 0.5, nFills_adaptive)
+                actY2_adaptive := calcLineValue_adaptive(lEP_adaptive, uEP_adaptive, index_adaptive + 0.5, nFills_adaptive)
+                percent_adaptive = count_adaptive / maxCount_adaptive
+                lineColor_adaptive = useCustomColor_adaptive ? customColor_adaptive : color_from_gradient_adaptive(percent_adaptive, loActColor_adaptive, hiActColor_adaptive)
+                lineStyle_adaptive = actLineStyle_adaptive == 'Solid' ? line.style_solid : actLineStyle_adaptive == 'Dotted' ? line.style_dotted : line.style_dashed
+                startX_adaptive = showProfile_adaptive ? math.min(bar_index, bar_index - lI_adaptive + 1 + math.round(count_adaptive / maxCount_adaptive * math.round(lI_adaptive / 5))) : bar_index - lI_adaptive + 1
+                startY_adaptive = showProfile_adaptive ? f_unadjust_adaptive(f_adjust_adaptive(actY1_adaptive) + activitySlope_adaptive * (startX_adaptive - (bar_index - lI_adaptive + 1))) : actY1_adaptive
+                actLine_adaptive = line.new(startX_adaptive, startY_adaptive, bar_index, actY2_adaptive, color = lineColor_adaptive, width = actLineWidth_adaptive, style = lineStyle_adaptive, extend = extend.right)
+                array.push(activityLines_adaptive, actLine_adaptive)
+
+                if showLabels_adaptive
+                    labelOffsetX_adaptive = 5
+                    labelOffsetY_adaptive = activitySlope_adaptive * labelOffsetX_adaptive
+                    labelX_adaptive = bar_index + labelOffsetX_adaptive
+                    labelY_adaptive = f_unadjust_adaptive(f_adjust_adaptive(actY2_adaptive) + labelOffsetY_adaptive)
+                    countLabel_adaptive = label.new(x = labelX_adaptive, y = labelY_adaptive, text = formatNumber_adaptive(count_adaptive), color = color.new(color.white, 100), textcolor = lineColor_adaptive, size = size.small, style = label.style_label_left)
+                    array.push(countLabels_adaptive, countLabel_adaptive)
+
+                displayedActivityLines_adaptive := displayedActivityLines_adaptive + 1
+                displayedActivityLines_adaptive
+
+
+    if showProfile_adaptive
+        profileLength_adaptive = math.round(lI_adaptive / 5)
+        sortedProfileIndices_adaptive = array.sort_indices(counts_adaptive, order.descending)
+        for idx3_adaptive = 0 to effectiveProfileBars_adaptive - 1 by 1
+            profileIndex_adaptive = array.get(sortedProfileIndices_adaptive, idx3_adaptive)
+            y1_top_adaptive = calcLineValue_adaptive(lSP_adaptive, uSP_adaptive, profileIndex_adaptive, nFills_adaptive)
+            y1_bottom_adaptive = calcLineValue_adaptive(lSP_adaptive, uSP_adaptive, profileIndex_adaptive + 1, nFills_adaptive)
+            y2_top_adaptive = calcLineValue_adaptive(lEP_adaptive, uEP_adaptive, profileIndex_adaptive, nFills_adaptive)
+            y2_bottom_adaptive = calcLineValue_adaptive(lEP_adaptive, uEP_adaptive, profileIndex_adaptive + 1, nFills_adaptive)
+            count_adaptive = array.get(counts_adaptive, profileIndex_adaptive)
+            percent_adaptive = count_adaptive / maxCount_adaptive
+            fillColor_adaptive := color_from_gradient_adaptive(percent_adaptive, loActColor_adaptive, hiActColor_adaptive)
+            lineLength_adaptive = math.round(count_adaptive / maxCount_adaptive * profileLength_adaptive)
+            x2_adaptive = math.min(bar_index, bar_index - lI_adaptive + 1 + lineLength_adaptive)
+            topLine_adaptive = line.new(bar_index - lI_adaptive + 1, y1_top_adaptive, x2_adaptive, f_unadjust_adaptive(f_adjust_adaptive(y1_top_adaptive) + activitySlope_adaptive * lineLength_adaptive), color = color.new(fillColor_adaptive, 100))
+            bottomLine_adaptive = line.new(bar_index - lI_adaptive + 1, y1_bottom_adaptive, x2_adaptive, f_unadjust_adaptive(f_adjust_adaptive(y1_bottom_adaptive) + activitySlope_adaptive * lineLength_adaptive), color = color.new(fillColor_adaptive, 100))
+            profileFill_adaptive = linefill.new(topLine_adaptive, bottomLine_adaptive, color = fillColor_adaptive)
+            array.push(profileFills_adaptive, profileFill_adaptive)
