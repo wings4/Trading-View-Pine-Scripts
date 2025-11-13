@@ -1,0 +1,166 @@
+//@version=6
+indicator("📚❤️❤️❤️ Dskyz (DAFE) Turning Point Indicator", shorttitle = "📚❤️❤️❤️ Dskyz TPI", overlay=true, max_bars_back=500)
+//==============================================================================
+// 📚 COMPREHENSIVE USER GUIDE & CONCEPTUAL FRAMEWORK
+//==============================================================================
+//D=================================================================Z
+// INPUTS & SETTINGS
+//D=================================================================Z
+groupReversal = "🔁 Reversal Settings"
+sensitivity   = input.int(15, title="High/Low Sensitivity", minval=1, group=groupReversal)
+atrPeriod     = input.int(16, title="ATR Period", group=groupReversal)
+multiplier    = input.float(1.1, title="ATR Multiplier", step=0.1, group=groupReversal)
+src           = input.source(hlcc4, title="Source", group=groupReversal)
+useATR        = input.bool(true, title="Use ATR (vs SMA TR)", group=groupReversal)
+
+// ✅ New: Independent mode toggles
+enableReversal = input.bool(true, title="Enable Reversal Mode", group=groupReversal)
+enableBreakout = input.bool(false, title="Enable Breakout Mode", group=groupReversal)
+
+//D=================================================================Z
+// RSI FILTER SETTINGS
+//D=================================================================Z
+groupRSI      = "📈 RSI Filter"
+enableRSI     = input.bool(true, "Enable RSI Filter", group=groupRSI)
+rsiLen        = input.int(14, "RSI Length", group=groupRSI)
+rsiTop        = input.int(65, "Overbought Threshold", group=groupRSI)
+rsiBot        = input.int(35, "Oversold Threshold", group=groupRSI)
+rsiLookbackTop = 10
+rsiLookbackBot = 10
+
+//D=================================================================Z
+// VOLUME SPIKE SETTINGS
+//D=================================================================Z
+groupVolume   = "📊 Volume Settings"
+volLookback   = input.int(22, "Volume Lookback", group=groupVolume)
+volMultiplier = input.float(1.3, "Volume Multiplier", step=0.1, group=groupVolume)
+volSpike      = volume > volMultiplier * ta.sma(volume, volLookback)
+
+//D=================================================================Z
+// SUPERTREND FUNCTION
+//D=================================================================Z
+getSupertrend(_src, _mult, _len, _useATR) =>
+    tr    = _useATR ? ta.atr(_len) : ta.sma(ta.tr, _len)
+    upper = _src - _mult * tr
+    lower = _src + _mult * tr
+    upper := close[1] > upper[1] ? math.max(upper, upper[1]) : upper
+    lower := close[1] < lower[1] ? math.min(lower, lower[1]) : lower
+    var int trend = 1
+    trend := trend == -1 and close > lower[1] ? 1 : trend == 1 and close < upper[1] ? -1 : trend
+    [trend, upper, lower]
+
+[rTrend, rUp, rDn] = getSupertrend(src, multiplier, atrPeriod, useATR)
+plot(rTrend == 1 ? rUp : na, color=color.green, title="Trend Support", linewidth=1)
+plot(rTrend == -1 ? rDn : na, color=color.red, title="Trend Resistance", linewidth=1)
+
+//D=================================================================Z
+// ATR VOLATILITY ZONES (HEATMAP)
+//D=================================================================Z
+atrValue     = useATR ? ta.atr(atrPeriod) : ta.sma(ta.tr, atrPeriod)
+atrAvg       = ta.sma(atrValue, atrPeriod)
+volHeatColor = atrValue > atrAvg * 1.5 ? color.new(color.red, 90) :
+               atrValue < atrAvg * 0.8 ? color.new(color.green, 90) :
+               color.new(color.yellow, 90)
+bgcolor(volHeatColor)
+
+//D=================================================================Z
+// RSI CALCULATIONS & FILTERS
+//D=================================================================Z
+rsi = ta.rsi(close, rsiLen)
+rsiBottomCond = enableRSI ? ta.barssince(rsi < rsiBot) < rsiLookbackBot : true
+rsiTopCond    = enableRSI ? ta.barssince(rsi > rsiTop) < rsiLookbackTop  : true
+
+//D=================================================================Z
+// HIGH/LOW DETECTION & SIGNAL LOGIC
+//D=================================================================Z
+lookback   = math.round(sensitivity / 10)
+highestVal = ta.highest(high, sensitivity)
+lowestVal  = ta.lowest(low, sensitivity)
+isNewHigh  = highestVal != highestVal[lookback] and close > highestVal[lookback]
+isNewLow   = lowestVal  != lowestVal[lookback]  and close < lowestVal[lookback]
+
+// Declare signal variables
+var bool sellSignal = false
+var bool buySignal  = false
+var int topFlag = 0
+var int botFlag = 0
+
+// ✅ Reset signals each bar
+sellSignal := false
+buySignal  := false
+
+// ✅ Reversal Logic
+if enableReversal
+    topFlag := rTrend == -1 ? 0 : isNewHigh and rTrend == 1 ? 1 : topFlag[1]
+    botFlag := rTrend == 1  ? 0 : isNewLow and rTrend == -1 ? 1 : botFlag[1]
+    sellSignal := sellSignal or ((topFlag[1] == 1 and topFlag == 0) and rsiTopCond and volSpike)
+    buySignal  := buySignal  or ((botFlag[1] == 1 and botFlag == 0) and rsiBottomCond and volSpike)
+
+// ✅ Breakout Logic
+if enableBreakout
+    sellSignal := sellSignal or (isNewHigh and rTrend == 1 and rsiTopCond and volSpike)
+    buySignal  := buySignal  or (isNewLow and rTrend == -1 and rsiBottomCond and volSpike)
+
+//D=================================================================Z
+// SIGNAL PLOTS & ALERTS
+//D=================================================================Z
+plotshape(buySignal, title="Buy Signal", location=location.belowbar, style=shape.labelup, text="Buy",
+     size=size.small, color=color.new(color.green, 0), textcolor=color.white)
+plotshape(sellSignal, title="Sell Signal", location=location.abovebar, style=shape.labeldown, text="Sell",
+     size=size.small, color=color.new(color.red, 0), textcolor=color.white)
+
+alertcondition(buySignal, title="Buy Alert", message="Trading signal: Buy")
+alertcondition(sellSignal, title="Sell Alert", message="Trading signal: Sell")
+
+//D=================================================================Z
+// DASHBOARD: WATERMARK LOGO (Bottom-Right)
+//D=================================================================Z
+var table watermarkTable = table.new(position.bottom_right, 1, 1, bgcolor=color.rgb(0,0,0,80), border_color=color.rgb(0,50,137), border_width=1)
+if barstate.islast
+    table.cell(watermarkTable, 0, 0, "⚡ Dskyz (DAFE) Turning Point Indicator", text_color=color.rgb(159,127,255,80), text_size=size.large)
+
+//D=================================================================Z
+// DASHBOARD: METRICS TABLE (Bottom-Left)
+//D=================================================================Z
+var table dashboard = table.new(position.middle_right, 2, 12, bgcolor=color.new(#000000, 29), border_color=color.rgb(80,80,80), border_width=1)
+if barstate.islast
+    table.cell(dashboard, 0, 0, "⚡(DAFE) Turning Point", text_color=color.rgb(135,135,135), text_size=size.small)
+    table.cell(dashboard, 0, 1, "Mode:", text_color=color.white, text_size=size.small)
+
+    // ✅ Display active modes
+    modeText = enableReversal and enableBreakout ? "Reversal + Breakout" :
+               enableReversal ? "Reversal" :
+               enableBreakout ? "Breakout" : "None"
+    table.cell(dashboard, 1, 1, modeText, text_color=color.white, text_size=size.small)
+
+    table.cell(dashboard, 0, 2, "Trend:", text_color=color.white, text_size=size.small)
+    trendText = rTrend == 1 ? "Bullish" : "Bearish"
+    table.cell(dashboard, 1, 2, trendText, text_color=rTrend == 1 ? color.green : color.red, text_size=size.small)
+
+    table.cell(dashboard, 0, 3, "ATR:", text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 1, 3, str.tostring(atrValue, "#.##"), text_color=color.white, text_size=size.small)
+
+    table.cell(dashboard, 0, 4, "ATR Avg:", text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 1, 4, str.tostring(atrAvg, "#.##"), text_color=color.white, text_size=size.small)
+
+    table.cell(dashboard, 0, 5, "Volume Spike:", text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 1, 5, volSpike ? "YES" : "NO", text_color=volSpike ? color.green : color.red, text_size=size.small)
+
+    table.cell(dashboard, 0, 6, "RSI:", text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 1, 6, str.tostring(rsi, "#.##"), text_color=color.white, text_size=size.small)
+
+    table.cell(dashboard, 0, 7, "RSI Cond:", text_color=color.white, text_size=size.small)
+    rsiCondText = enableRSI ? (rsi < rsiBot ? "Oversold" : rsi > rsiTop ? "Overbought" : "Neutral") : "Disabled"
+    table.cell(dashboard, 1, 7, rsiCondText, text_color=color.white, text_size=size.small)
+
+    table.cell(dashboard, 0, 8, "Last Signal:", text_color=color.white, text_size=size.small)
+    lastSignal = buySignal ? "Buy" : sellSignal ? "Sell" : "None"
+    table.cell(dashboard, 1, 8, lastSignal, text_color=buySignal ? color.green : sellSignal ? color.red : color.white, text_size=size.small)
+
+    // Optional filler rows for future metrics
+    table.cell(dashboard, 0, 9, "", text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 1, 9, "", text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 0, 10, "", text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 1, 10, "", text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 0, 11, "", text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 1, 11, "", text_color=color.white, text_size=size.small)
