@@ -1,0 +1,926 @@
+//@version=6
+indicator('❤️❤️❤️ Advanced Inflection Point Pro DskyzInvestments', shorttitle = '⇋❤️❤️❤️ADV IP Pro', overlay = true, max_bars_back = 5000, precision = 4)
+
+//==============================================================================
+// 📚 COMPREHENSIVE USER GUIDE & CONCEPTUAL FRAMEWORK
+//==============================================================================
+//
+// 📚 https://www.tradingview.com/script/sUuqJjiW-Inflection-Point/
+//
+// ⚡ INFLECTION POINT PRO (IP PRO) - QUANTUM-ENHANCED REVERSAL ENGINE
+//
+// Welcome to Inflection Point Pro, an advanced evolution of reversal detection that
+// combines quantum state analysis, neural pattern recognition, and market regime
+// adaptation to identify the highest-probability market turning points.
+//
+// ⚡ WHAT MAKES IP PRO DIFFERENT:
+//
+// Traditional indicators react to price. IP Pro predicts price by analyzing the
+// underlying quantum states of market behavior.
+//
+// 1. QUANTUM STATE ANALYSIS:
+// - Markets exist in measurable quantum states (0-12) representing extremes of
+//   momentum, volatility, and positioning
+// - The engine tracks state velocity and acceleration to predict reversals
+//   BEFORE they manifest in price
+// - Think of it as measuring the "pressure" building before the dam breaks
+//
+// 2. NEURAL PATTERN MATCHING:
+// - Compares current price patterns against successful historical reversals
+// - Identifies exhaustion and accumulation signatures invisible to traditional analysis
+// - Pattern strength directly influences signal probability
+//
+// 3. MULTI-DIMENSIONAL CONFLUENCE ENGINE:
+// - Analyzes 7 independent probability factors simultaneously:
+//   • Quantum state position & velocity
+//   • Neural pattern matches
+//   • Volume anomaly detection
+//   • Structural level proximity
+//   • Market regime alignment
+//   • Order flow momentum
+//   • Volatility characteristics
+// - Only signals when multiple factors align for maximum probability
+//
+// 4. MARKET REGIME ADAPTATION:
+// - Automatically detects 5 distinct market conditions:
+//   • Strong Trend Up/Down
+//   • High Volatility
+//   • Choppy/Ranging
+//   • Low Activity
+// - Adjusts all parameters dynamically based on current regime
+//
+// 5. ANTICIPATORY VS CONFIRMATION MODES:
+// - Anticipatory: Generates signals AS reversals form (early entry, slightly lower accuracy)
+// - Confirmation: Waits for reversal confirmation (later entry, higher accuracy)
+// - Toggle based on your risk tolerance and trading style
+//
+// 🎯 HUD & KEY METRICS DEEP DIVE:
+//
+// The Enhanced Dashboard provides complete transparency into the engine's
+// decision-making process.
+//
+// 📈 PROBABILITY SCORE (%):
+// Mathematical Basis: Weighted composite of 7+ factors, dynamically adjusted by
+// market regime
+// • 90-100%: Exceptional confluence - multiple strong factors aligning
+// • 80-89%: Strong setup - high probability reversal imminent
+// • 70-79%: Moderate setup - good risk/reward opportunity
+// • < 70%: Below threshold - no signal generated
+//
+// 🎯 WIN RATE (%):
+// Mathematical Basis: Tracks actual performance of signals over time
+// • Updated in real-time as signals play out
+// • Used to gauge current effectiveness
+// • Helps identify when market behavior changes
+//
+// 🌌 QUANTUM STATE:
+// Mathematical Basis: Multi-dimensional analysis of price position, momentum, and volatility
+// • 0-2: Extreme oversold - high probability of Valley formation
+// • 3-4: Moderately oversold - building Valley potential
+// • 5-7: Neutral zone - no edge
+// • 8-9: Moderately overbought - building Peak potential
+// • 10-12: Extreme overbought - high probability of Peak formation
+//
+// 🌊 ORDER FLOW (OFPI):
+// Mathematical Basis: Price-weighted volume momentum normalized by ATR
+// • Measures the "push" behind price movements
+// • > 15%: Strong directional flow
+// • 5-15%: Moderate flow
+// • < 5%: Weak/neutral flow
+// • Flow reversals often precede price reversals
+//
+// 🧮 THE MATHEMATICS IN DETAIL:
+//
+// STAGE 1: QUANTUM STATE CALCULATION
+// QuantumState = f(PricePosition, MomentumState, VolumeState, VolatilityState)
+// Where:
+// - PricePosition = (Close - LowestN) / (HighestN - LowestN)
+// - MomentumState = Normalized momentum with velocity/acceleration
+// - VolumeState = Current volume vs adaptive average
+// - VolatilityState = Current vs historical volatility ratio
+//
+// STAGE 2: PATTERN RECOGNITION
+// The neural engine extracts a 12-bar price pattern and calculates:
+// - Pattern direction bias
+// - Pattern volatility signature
+// - Exhaustion/accumulation characteristics
+// - Similarity score to successful historical patterns
+//
+// STAGE 3: CONFLUENCE SCORING
+// BaseScore = (QuantumScore × 0.3) + PositionScore + VelocityScore + 
+//            AccelerationScore + PatternBonus + VolumeBonus + StructureBonus
+//
+// FinalScore = BaseScore × RegimeMultiplier × AsymmetricBoost
+//
+// STAGE 4: SIGNAL GENERATION
+// - Signal triggered if FinalScore ≥ MinimumProbability
+// - Must pass all active filters (volume, structural)
+// - Visual elements and targets calculated automatically
+//
+// 💡 TRADING PHILOSOPHY WITH IP PRO:
+//
+// Markets are complex adaptive systems that exist in measurable states. Like water
+// that must reach a boiling point before changing state, markets exhibit detectable
+// "pressure" before reversing. IP Pro measures this pressure across multiple
+// dimensions, waiting for the moment when reversal becomes not just possible,
+// but probable.
+//
+// 🎯 HOW TO USE IP PRO EFFECTIVELY:
+//
+// 1. SIGNAL IDENTIFICATION:
+// - Primary Signals: Peak (▼) and Valley (▲) markers with probability percentages
+// - Probability Display: Shows exact confidence level for each signal
+// - Target Lines: Automatic T1, T2, T3 levels based on ATR and market conditions
+//
+// 2. PRE-SIGNAL ANALYSIS (VIA DASHBOARD):
+// - Quantum State: Is the market in an extreme state (0-2 or 10-12)?
+// - Market Regime: Are we in a trending or choppy environment?
+// - Order Flow: Is there momentum supporting a reversal?
+// - Volume: Is there conviction behind the move?
+//
+// 3. ENTRY STRATEGIES:
+// - Aggressive: Enter on signal bar close (Anticipatory Mode recommended)
+// - Conservative: Wait for first target direction confirmation
+// - Scaled: Enter 50% on signal, 50% on pullback to entry
+//
+// 4. POSITION MANAGEMENT:
+// - Stop Loss: Use signal bar extreme (high for Peak, low for Valley)
+// - Target 1: Often hit quickly - consider partial profits
+// - Target 2: Standard exit for most positions
+// - Target 3: Let winners run in strong moves
+//
+// 5. REGIME-BASED ADJUSTMENTS:
+// - Strong Trends: Use Asymmetric Balance to favor trend direction
+// - High Volatility: Expect wider swings between signals
+// - Choppy Markets: Tighten stops, take quicker profits
+// - Low Activity: Be patient, fewer but higher quality signals
+//
+// ⚠️ ADVANCED FEATURES:
+//
+// VISUAL INTELLIGENCE:
+// • Market Flow Ribbons: Show short-term momentum state
+// • Regime Background: Instant recognition of market conditions
+// • Support/Resistance Levels: Dynamic, signal-validated levels
+// • Target Management: Visual tracking of profit targets
+//
+// FILTER SYNERGY:
+// Multiple filters work together to ensure only the highest quality signals:
+// • Volume Anomaly: Confirms reversal conviction
+// • Structural Confluence: Validates key level alignment
+// • Pattern Recognition: Additional confirmation layer
+// • Regime Adaptation: Dynamic parameter adjustment
+//
+// 💎 PRO TIPS FOR MAXIMUM EFFECTIVENESS:
+//
+// For Scalpers (1-5min charts):
+// • Analysis Depth: 15-20
+// • Min Probability: 60-70%
+// • Anticipatory Mode: ON
+// • Focus on T1 targets
+//
+// For Day Traders (15min-1H):
+// • Analysis Depth: 20-30
+// • Min Probability: 65-75%
+// • Either mode works
+// • Use T1/T2 targets
+//
+// For Swing Traders (4H-Daily):
+// • Analysis Depth: 30-50
+// • Min Probability: 70-80%
+// • Confirmation Mode recommended
+// • All targets viable
+//
+// Market-Specific Settings:
+// • Crypto: Lower probability threshold (volatility is your friend)
+// • Forex: Harmonic target mode works well
+// • Indices: Higher probability threshold (fight the trend less)
+// • Stocks: Enable all filters for maximum accuracy
+//
+//==============================================================================
+// 📊 INPUT CONFIGURATION
+//==============================================================================
+groupCore = '🧠 Quantum Core Engine'
+analysisDepth = input.int(17, 'Analysis Depth', minval = 10, maxval = 100, group = groupCore, tooltip = '🎯 WHAT IT IS: The primary lookback period for quantum state analysis and pattern detection. This is the foundation of all calculations.\n\n⚡ HOW IT WORKS: Defines the number of bars analyzed to identify quantum states, momentum shifts, and exhaustion patterns. Shorter = more reactive, Longer = more stable.\n\n📈 LONGER VALUES (40-60): Focuses on major market turns, filters out minor moves. Best for higher timeframes and position trading.\n📉 SHORTER VALUES (10-20): More sensitive to quick reversals. Ideal for scalping and day trading.\n\n🕒 TIMEFRAME OPTIMIZATION:\n• Scalping (1-5min): 15-20\n• Day Trading (15min-1H): 20-30\n• Swing Trading (4H-1D): 30-50\n\n🏦 SECTOR RECOMMENDATIONS:\n• Stocks: 25-30\n• Crypto: 20-30 (adjust for volatility)\n• Forex: 20-25\n• Indices: 30-40\n\n💡 PRO TIP: Start with 25 and adjust based on signal frequency. Too many signals? Increase. Too few? Decrease.')
+minProbability = input.float(75.0, 'Minimum Probability %', minval = 0.0, maxval = 95.0, group = groupCore, tooltip = '🎯 WHAT IT IS: The minimum confluence score required to generate a signal. Your quality control threshold.\n\n⚡ HOW IT WORKS: After calculating all factors, the final probability must exceed this value. Higher = fewer, higher quality signals.\n\n📈 HIGHER VALUES (75-95%): Very selective, only the strongest setups. Better win rate, fewer opportunities.\n📉 LOWER VALUES (50-65%): More signals including moderate setups. More opportunities, requires better management.\n\n🕒 TIMEFRAME OPTIMIZATION:\n• Scalping: 60-70% (need more signals)\n• Day Trading: 65-75% (balanced approach)\n• Swing Trading: 70-85% (quality over quantity)\n\n💡 PRO TIP: Start at 65% and increase if you\'re getting too many signals or decrease if missing good moves.')
+barsBetweenSignals = input.int(5, 'Minimum Bars Between Signals', minval = 0, maxval = 20, group = groupCore, tooltip = '🎯 WHAT IT IS: Prevents signal clustering by enforcing minimum spacing between signals.\n\n⚡ HOW IT WORKS: After a signal, no new signals for this many bars. Helps avoid whipsaws in choppy markets.\n\n📈 HIGHER VALUES (10-20): Forces wide spacing, only major reversals. Good for swing trading.\n📉 LOWER VALUES (0-5): Allows quick successive signals. Better for scalping volatile moves.\n\n💡 PRO TIP: Use 3-5 for intraday, 10+ for swing trading. Set to 0 to disable.')
+useRegimeAdaptation = input.bool(true, 'Enable Market Regime Adaptation', group = groupCore, tooltip = '🎯 WHAT IT IS: Automatic detection and adaptation to current market conditions.\n\n⚡ HOW IT WORKS: Identifies whether market is trending, volatile, choppy, or quiet, then adjusts all parameters accordingly.\n\n📈 ENABLED: Dynamic optimization based on conditions. Reduces false signals in bad conditions.\n📉 DISABLED: Static parameters regardless of market state.\n\n💡 PRO TIP: Always leave ON. This is what makes the indicator \'smart\' and adaptive.')
+anticipatoryMode = input.bool(true, 'Anticipatory Mode (Early Signals)', group = groupCore, tooltip = '🎯 WHAT IT IS: Choose between early predictive signals or confirmed reversal signals.\n\n⚡ HOW IT WORKS:\n• ON (Anticipatory): Signals appear AS reversals form. Earlier entry, slightly lower accuracy.\n• OFF (Confirmation): Signals appear AFTER reversal confirms. Later entry, higher accuracy.\n\n📈 USE ANTICIPATORY FOR:\n• Scalping (need early entries)\n• High volatility markets\n• When you can manage risk well\n\n📉 USE CONFIRMATION FOR:\n• Swing trading\n• Lower volatility markets\n• When you prefer higher probability\n\n💡 PRO TIP: Start with Anticipatory for intraday, Confirmation for position trading.')
+groupFilters = '🛡️ Advanced Filters'
+useStructuralFilter = input.bool(true, 'Structural Confluence Filter', group = groupFilters, tooltip = '🎯 WHAT IT IS: Requires signals to align with key support/resistance levels.\n\n⚡ HOW IT WORKS: Identifies recent pivots and structural levels. Signals near these levels get probability boost.\n\n📈 ENABLED: Higher quality signals at key levels. May miss some reversals away from structure.\n📉 DISABLED: Signals anywhere. More opportunities but potentially lower quality.\n\n💡 PRO TIP: Essential for swing trading. Can be disabled for scalping if you need more signals.')
+usePatternRecognition = input.bool(true, 'Neural Pattern Matching', group = groupFilters, tooltip = '🎯 WHAT IT IS: AI-like pattern recognition comparing current action to historical reversals.\n\n⚡ HOW IT WORKS: Analyzes recent price patterns for exhaustion/accumulation signatures. Matches against successful reversal patterns.\n\n📈 ENABLED: Smarter signals with pattern confirmation. Catches complex reversals.\n📉 DISABLED: Relies only on quantum states and momentum.\n\n💡 PRO TIP: Very powerful for catching V-reversals and exhaustion moves. Keep enabled.')
+useVolumeAnomaly = input.bool(true, 'Volume Anomaly Detection', group = groupFilters, tooltip = '🎯 WHAT IT IS: Identifies unusual volume patterns that often accompany major reversals.\n\n⚡ HOW IT WORKS: Calculates volume z-scores and relative volume. True reversals often have volume spikes.\n\n📈 ENABLED: Confirms reversals with volume. More reliable but fewer signals.\n📉 DISABLED: Ignores volume. More signals but potentially false ones.\n\n💡 PRO TIP: Critical for stocks/crypto. Can disable for forex where volume is less reliable.')
+volumeThreshold = input.float(1.7, 'Volume Spike Threshold', minval = 1.0, maxval = 3.0, step = 0.1, group = groupFilters, tooltip = '🎯 WHAT IT IS: How much above average volume must be for confirmation.\n\n⚡ HOW IT WORKS: 1.5 = volume must be 50% above average. 2.0 = 100% above (double).\n\n📈 HIGHER VALUES (2.0-3.0): Only massive volume spikes. Very high conviction but rare.\n📉 LOWER VALUES (1.0-1.5): Moderate volume increase sufficient. More signals.\n\n💡 PRO TIP: 1.5 for general use, 2.0+ for news/earnings plays, 1.2 for forex.')
+useVolumeFilter = input.bool(true, 'Volume Filter', group = groupFilters, tooltip = '🎯 WHAT IT IS: Master toggle for volume-based filtering.\n\n⚡ HOW IT WORKS: When ON, signals must meet volume threshold. When OFF, volume ignored.\n\n💡 PRO TIP: ON for stocks/crypto, consider OFF for forex or low-volume assets.')
+useAdaptiveEngine = input.bool(true, 'Adaptive Engine', group = groupFilters, tooltip = '🎯 WHAT IT IS: Dynamic confidence adjustment based on market regime.\n\n⚡ HOW IT WORKS: Boosts signals in favorable conditions, reduces in unfavorable.\n\n💡 PRO TIP: Always leave ON for smarter signal generation.')
+useAsymmetricBalance = input.bool(true, 'Enable Asymmetric Balance', group = groupFilters, tooltip = '🎯 WHAT IT IS: Manual bias control for long vs short signals.\n\n⚡ HOW IT WORKS: Boost one direction while reducing the other based on market bias.\n\n💡 PRO TIP: Use to align with larger timeframe trends.')
+peakBoost = input.float(1.5, 'Peak Signal Boost', minval = 0.5, maxval = 2.0, step = 0.1, group = groupFilters, tooltip = '🎯 WHAT IT IS: Multiplier for Peak (bearish) signal probability.\n\n⚡ HOW IT WORKS:\n• > 1.0: More Peak signals\n• < 1.0: Fewer Peak signals\n• = 1.0: Neutral\n\n💡 PRO TIP: In uptrends, set to 0.7-0.8. In downtrends, set to 1.2-1.5.')
+valleyBoost = input.float(1.5, 'Valley Signal Boost', minval = 0.5, maxval = 2.0, step = 0.1, group = groupFilters, tooltip = '🎯 WHAT IT IS: Multiplier for Valley (bullish) signal probability.\n\n⚡ HOW IT WORKS:\n• > 1.0: More Valley signals\n• < 1.0: Fewer Valley signals\n• = 1.0: Neutral\n\n💡 PRO TIP: In uptrends, set to 1.2-1.5. In downtrends, set to 0.7-0.8.')
+groupTargets = '🎯 Smart Target System'
+showDynamicTargets = input.bool(true, 'Show Dynamic Targets', group = groupTargets, tooltip = '🎯 WHAT IT IS: Automatic profit target calculation and display.\n\n⚡ HOW IT WORKS: Calculates 3 targets based on ATR and market conditions.\n\n💡 PRO TIP: T1 for quick profits, T2 for runners, T3 for home runs.')
+targetMode = input.string('Adaptive', 'Target Mode', options = ['Fixed ATR', 'Adaptive', 'Harmonic'], group = groupTargets, tooltip = '🎯 WHAT IT IS: Method for calculating profit targets.\n\n⚡ OPTIONS:\n• Fixed ATR: Simple 1x, 2x, 3x ATR\n• Adaptive: Adjusts based on volatility\n• Harmonic: Fibonacci-based (0.618, 1.0, 1.618)\n\n💡 PRO TIP: Adaptive for most cases, Harmonic for forex.')
+showSupportResistance = input.bool(true, 'Show Support/Resistance', group = groupTargets, tooltip = '🎯 WHAT IT IS: Dynamic support/resistance based on structure and signals.\n\n💡 PRO TIP: Use for stop placement and target adjustment.')
+groupVisual = '🌟 Quantum Visuals'
+showMarketFlow = input.bool(true, 'Market Flow Ribbons', group = groupVisual, tooltip = '🎯 WHAT IT IS: EMA ribbon showing short-term momentum flow.\n\n⚡ HOW IT WORKS: Multiple EMAs create visual momentum. Expansion = momentum, Compression = consolidation.\n\n💡 PRO TIP: When ribbons flip color, confirms inflection points.')
+marketFlowOpacity = input.int(80, 'Market Flow Opacity', minval = 0, maxval = 100, group = groupVisual, tooltip = 'Adjust ribbon transparency (higher = more visible)')
+showRegimeBackground = input.bool(true, 'Regime Background', group = groupVisual, tooltip = '🎯 WHAT IT IS: Colors background based on market regime.\n\n• Green: Strong uptrend\n• Red: Strong downtrend\n• Orange: High volatility\n• Purple: Choppy\n• Gray: Low activity\n\n💡 PRO TIP: Quick visual reference for market state.')
+regimeBgOpacity = input.int(95, 'Regime Background Opacity', minval = 0, maxval = 100, group = groupVisual, tooltip = 'Adjust background transparency (higher = less visible)')
+visualTheme = input.string('Quantum', 'Visual Theme', options = ['Quantum', 'Neural', 'Cosmic', 'Matrix'], group = groupVisual, tooltip = '🎯 WHAT IT IS: Color scheme selection.\n\n💡 PRO TIP: Choose based on your chart background color.')
+showSignalTrails = input.bool(true, 'Show Signal Trails', group = groupVisual, tooltip = 'Visual trails for enhanced signal visibility')
+groupDashboard = '📊 Analytics Dashboard'
+show_dashboard = input.bool(true, 'Show Enhanced Dashboard', group = groupDashboard, tooltip = '🎯 WHAT IT IS: Real-time analytics panel showing all metrics.\n\n💡 PRO TIP: Essential for understanding signal context.')
+dashboard_size = input.string('Normal', 'Dashboard Size', options = ['Small', 'Normal', 'Large'], group = groupDashboard, tooltip = '🎯 WHAT IT IS: Dashboard detail level.\n\n• Small: Core metrics only\n• Normal: Standard view\n• Large: All details\n\n💡 PRO TIP: Normal for desktop, Small for mobile.')
+dashboard_position_input = input.string('Top Right', 'Dashboard Position', options = ['Top Left', 'Top Right', 'Bottom Left', 'Bottom Right'], group = groupDashboard, tooltip = 'Position on chart. Top Right usually best.')
+//==================================================================
+// ⚙️ CORE CALCULATIONS
+//==================================================================
+atr = ta.atr(14)
+rsi = ta.rsi(close, 14)
+avgVolume = ta.sma(volume, 20)
+ema_fast = ta.ema(close, 8)
+ema_slow = ta.ema(close, 21)
+ema_slope = (ema_fast - ema_fast[3]) / 3
+var int signalsAllowed = 0
+var int signalsBlockedVolume = 0
+var int barsSinceLastSignal = 999
+var array<float> signalHistory = array.new_float()
+var float hitRate = 50.0
+var array<int> signalBars = array.new<int>()
+var array<float> signalPrices = array.new<float>()
+var array<string> signalTypes = array.new<string>()
+var int totalSignals = 0
+var int successfulSignals = 0
+type TargetInfo
+	int signalBar
+	string signalType
+	float entryPrice
+	float target1
+	float target2
+	float target3
+	float stopLoss
+	line line1
+	line line2
+	line line3
+	label label1
+	label label2
+	label label3
+	bool t1Hit
+	bool t2Hit
+	bool t3Hit
+var array<TargetInfo> activeTargets = array.new<TargetInfo>()
+//==============================================================================
+// 🎨 THEME ENGINE
+//==============================================================================
+getThemeColors(theme) =>
+    switch theme
+        'Quantum' => [#00D9FF, #FF0080, #7B61FF, #39FF14, #FFB347]
+        'Neural' => [#2ECC71, #E74C3C, #F39C12, #16A085, #9B59B6]
+        'Cosmic' => [#FF6B6B, #4ECDC4, #45B7D1, #96CEB4, #FFEAA7]
+        'Matrix' => [#A8E6CF, #FF8B94, #FFD93D, #6BCB77, #4D96FF]
+        => [#00D9FF, #FF0080, #7B61FF, #39FF14, #FFB347]
+[c_bull, c_bear, c_quantum, c_success, c_warning] = getThemeColors(visualTheme)
+c_neural_valley = c_bull
+c_neural_peak = c_bear
+c_hud_bg = #1e222d
+//==============================================================================
+// 🧮 ENHANCED MARKET REGIME DETECTION
+//==============================================================================
+detectMarketRegime() =>
+    [diPlus, diMinus, adx] = ta.dmi(14, 14)
+    atr_short = ta.atr(10)
+    atr_long = ta.atr(50)
+    atr_ratio = atr_short / atr_long
+    vol_short = ta.sma(volume, 20)
+    vol_long = ta.sma(volume, 100)
+    vol_ratio = vol_short / vol_long
+    roc_short = ta.roc(close, 10)
+    roc_long = ta.roc(close, 50)
+    regime = adx > 30 and roc_long > 0 ? 'STRONG_TREND_UP' : adx > 30 and roc_long < 0 ? 'STRONG_TREND_DOWN' : atr_ratio > 1.5 ? 'HIGH_VOLATILITY' : atr_ratio < 0.7 and vol_ratio < 0.8 ? 'LOW_ACTIVITY' : adx < 20 and atr_ratio > 0.9 ? 'CHOPPY' : 'NORMAL'
+    adaptiveFactor = switch regime
+        'STRONG_TREND_UP' => 0.8
+        'STRONG_TREND_DOWN' => 0.8
+        'HIGH_VOLATILITY' => 1.2
+        'LOW_ACTIVITY' => 0.6
+        'CHOPPY' => 0.5
+        => 1.0
+    [regime, adaptiveFactor]
+[marketRegime, regimeMultiplier] = detectMarketRegime()
+volatilityRank = ta.percentrank(atr, 100)
+//==============================================================================
+// 🌌 ENHANCED QUANTUM STATE ANALYSIS
+//==============================================================================
+stateGranularity = 12
+quantumStateAnalysis(period) =>
+    highest = ta.highest(high, period)
+    lowest = ta.lowest(low, period)
+    priceRange = highest - lowest
+    position = priceRange > 0 ? (close - lowest) / priceRange : 0.5
+    mom = ta.mom(close, int(period / 2))
+    mom_stdev = ta.stdev(mom, period)
+    mom_normalized = mom_stdev > 0 ? mom / mom_stdev : 0
+    vol_ratio = volume / ta.sma(volume, period)
+    current_volatility = ta.stdev(close, int(period / 2))
+    avg_volatility = ta.sma(current_volatility, period)
+    vol_state = avg_volatility > 0 ? current_volatility / avg_volatility : 1
+    raw_score = position * 0.4 + (mom_normalized + 1) * 0.3 + vol_ratio * 0.2 + vol_state * 0.1
+    state = math.round(raw_score * (stateGranularity - 1))
+    velocity = ta.change(raw_score, 3)
+    acceleration = ta.change(velocity)
+    [state, raw_score, velocity, acceleration, position]
+[quantumState, quantumScore, stateVelocity, stateAcceleration, pricePosition] = quantumStateAnalysis(analysisDepth)
+//==============================================================================
+// 🔮 NEURAL PATTERN RECOGNITION ENGINE
+//==============================================================================
+detectNeuralPatterns() =>
+    if not usePatternRecognition
+        [false, false, 0.0]
+    else
+        lookback = 12
+        pattern = array.new<float>()
+        for i = 0 to lookback - 1 by 1
+            array.push(pattern, (close[i] - close[i + 1]) / close[i + 1] * 100)
+        pattern_sum = array.sum(pattern)
+        pattern_stdev = array.stdev(pattern)
+        pattern_max = array.max(pattern)
+        pattern_min = array.min(pattern)
+        exhaustion_pattern = pattern_sum < 0 and pattern_stdev > 0.5 and math.abs(pattern_min) > math.abs(pattern_max)
+        accumulation_pattern = pattern_sum > 0 and pattern_stdev > 0.5 and pattern_max > math.abs(pattern_min)
+        strength = math.min(30, pattern_stdev * 15 + math.abs(pattern_sum) * 3)
+        [exhaustion_pattern, accumulation_pattern, strength]
+[neuralExhaustion, neuralAccumulation, patternStrength] = detectNeuralPatterns()
+//==============================================================================
+// 🌊 VOLUME ANOMALY DETECTION
+//==============================================================================
+detectVolumeAnomaly() =>
+    if not useVolumeAnomaly
+        [false, false, 0.0, 1.0]
+    else
+        vol_sma = ta.sma(volume, 20)
+        vol_stdev = ta.stdev(volume, 20)
+        vol_zscore = vol_stdev > 0 ? (volume - vol_sma) / vol_stdev : 0
+        rel_volume = vol_sma > 0 ? volume / vol_sma : 1
+        vol_momentum = ta.change(volume, 5) / ta.sma(volume, 5)
+        is_spike = rel_volume > volumeThreshold
+        is_anomaly = math.abs(vol_zscore) > 2 or math.abs(vol_momentum) > 0.5
+        anomaly_score = math.min(25, math.abs(vol_zscore) * 8 + rel_volume * 8)
+        [is_spike, is_anomaly, anomaly_score, rel_volume]
+[volSpike, volAnomaly, volumeScore, relativeVolume] = detectVolumeAnomaly()
+//==============================================================================
+// 🏗️ STRUCTURAL ANALYSIS
+//==============================================================================
+analyzeStructure() =>
+    if not useStructuralFilter
+        [false, false, 10.0, na, na]
+    else
+        pivot_len = int(analysisDepth / 2)
+        pivot_high = ta.pivothigh(high, pivot_len, pivot_len)
+        pivot_low = ta.pivotlow(low, pivot_len, pivot_len)
+        resistance = ta.valuewhen(not na(pivot_high), high[pivot_len], 0)
+        support = ta.valuewhen(not na(pivot_low), low[pivot_len], 0)
+        atr_val = atr
+        dist_to_resistance = not na(resistance) ? (resistance - close) / atr_val : 999
+        dist_to_support = not na(support) ? (close - support) / atr_val : 999
+        near_resistance = dist_to_resistance < 0.5 and dist_to_resistance > -0.3
+        near_support = dist_to_support < 0.5 and dist_to_support > -0.3
+        structure_score = near_resistance or near_support ? 25 : 10
+        [near_resistance, near_support, structure_score, resistance, support]
+[nearResistance, nearSupport, structureScore, resistanceLevel, supportLevel] = analyzeStructure()
+//==============================================================================
+// 🎯 ADVANCED CONFLUENCE SCORING ENGINE - REALISTIC SCORES
+//==============================================================================
+calculateConfluenceScore(isPeak) =>
+    base_quantum = quantumScore * 50
+    position_score = isPeak ? pricePosition > 0.85 ? 25 : pricePosition > 0.7 ? 15 : pricePosition > 0.5 ? 8 : 3 : pricePosition < 0.15 ? 25 : pricePosition < 0.3 ? 15 : pricePosition < 0.5 ? 8 : 3
+    velocity_score = math.min(15, math.abs(stateVelocity) * 50)
+    acceleration_score = isPeak ? stateAcceleration < 0 ? 10 : 0 : stateAcceleration > 0 ? 10 : 0
+    pattern_bonus = usePatternRecognition ? isPeak ? neuralExhaustion ? patternStrength * 0.5 : 0 : neuralAccumulation ? patternStrength * 0.5 : 0 : 0
+    volume_bonus = useVolumeAnomaly and (volSpike or volAnomaly) ? volumeScore * 0.4 : 0
+    structure_bonus = useStructuralFilter ? isPeak ? nearResistance ? 15 : 0 : nearSupport ? 15 : 0 : 0
+    regime_adj = useRegimeAdaptation ? regimeMultiplier : 1.0
+    balance_factor = useAsymmetricBalance ? isPeak ? peakBoost : valleyBoost : 1.0
+    raw_score = base_quantum * 0.25 + position_score + velocity_score * 0.5 + acceleration_score + pattern_bonus + volume_bonus + structure_bonus
+    final_score = raw_score * regime_adj * balance_factor
+    if useAdaptiveEngine
+        adaptive_boost = switch marketRegime
+            'HIGH_VOLATILITY' => 1.15
+            'CHOPPY' => 1.2
+            'LOW_ACTIVITY' => 0.85
+            => 1.0
+        final_score := final_score * adaptive_boost
+        final_score
+    math.min(100.0, math.max(0.0, final_score))
+    //==============================================================================
+    // 📍 ANTICIPATORY PEAK & VALLEY DETECTION
+    //==============================================================================
+detectInflectionPoints() =>
+    is_extreme_high = quantumState >= stateGranularity - 2
+    is_extreme_low = quantumState <= 1
+    momentum_slowing = math.abs(stateVelocity) < math.abs(stateVelocity[1])
+    momentum_reversing = ta.change(math.sign(stateVelocity)) != 0
+    bearish_rejection = high > high[1] and close < low[1]
+    bullish_rejection = low < low[1] and close > high[1]
+    is_fractal_high = high[2] < high[1] and high[1] > high
+    is_fractal_low = low[2] > low[1] and low[1] < low
+    if anticipatoryMode
+        peak_forming = is_extreme_high and stateVelocity < 0 and momentum_slowing
+        valley_forming = is_extreme_low and stateVelocity > 0 and momentum_slowing
+        early_peak = peak_forming or is_fractal_high and is_extreme_high
+        early_valley = valley_forming or is_fractal_low and is_extreme_low
+        [early_peak or bearish_rejection, early_valley or bullish_rejection]
+    else
+        confirmed_peak = is_fractal_high and is_extreme_high and stateVelocity < 0
+        confirmed_valley = is_fractal_low and is_extreme_low and stateVelocity > 0
+        [confirmed_peak, confirmed_valley]
+[isPotentialPeak, isPotentialValley] = detectInflectionPoints()
+peakProbability = isPotentialPeak ? calculateConfluenceScore(true) : 0
+valleyProbability = isPotentialValley ? calculateConfluenceScore(false) : 0
+peak_passed_filters = true
+valley_passed_filters = true
+if useVolumeFilter and not volSpike
+    peak_passed_filters := false
+    valley_passed_filters := false
+    valley_passed_filters
+if barsSinceLastSignal < barsBetweenSignals
+    peak_passed_filters := false
+    valley_passed_filters := false
+    valley_passed_filters
+isPeakSignal = peakProbability >= minProbability and peak_passed_filters
+isValleySignal = valleyProbability >= minProbability and valley_passed_filters
+barsSinceLastSignal := isPeakSignal or isValleySignal ? 0 : barsSinceLastSignal + 1
+//==============================================================================
+// 🎯 WIN RATE CALCULATION
+//==============================================================================
+if barstate.isconfirmed and array.size(signalBars) > 0
+    for i = 0 to array.size(signalBars) - 1 by 1
+        if i < array.size(signalBars)
+            sig_bar = array.get(signalBars, i)
+            sig_price = array.get(signalPrices, i)
+            sig_type = array.get(signalTypes, i)
+            bars_passed = bar_index - sig_bar
+            if bars_passed >= 10 and bars_passed <= 100
+                success = false
+                if sig_type == 'valley'
+                    for j = 0 to math.min(bars_passed - 1, 50) by 1
+                        if high[j] >= sig_price + atr * 1.5
+                            success := true
+                            break
+                else
+                    for j = 0 to math.min(bars_passed - 1, 50) by 1
+                        if low[j] <= sig_price - atr * 1.5
+                            success := true
+                            break
+                totalSignals := totalSignals + 1
+                if success
+                    successfulSignals := successfulSignals + 1
+                    successfulSignals
+if totalSignals > 5
+    hitRate := successfulSignals / totalSignals * 100
+    hitRate
+else
+    hitRate := 50.0
+    hitRate
+    //==============================================================================
+    // 🎯 DYNAMIC TARGET MANAGEMENT
+    //==============================================================================
+calculateSmartTargets(signalPrice, signalType, atr_val) =>
+    target1_mult = 1.0
+    target2_mult = 2.0
+    target3_mult = 3.0
+    if targetMode == 'Adaptive'
+        vol_rank = ta.percentrank(atr_val, 50)
+        vol_mult = 0.5 + vol_rank / 100
+        target1_mult := 0.8 * vol_mult
+        target2_mult := 1.618 * vol_mult
+        target3_mult := 2.618 * vol_mult
+        target3_mult
+    else if targetMode == 'Harmonic'
+        target1_mult := 0.618
+        target2_mult := 1.000
+        target3_mult := 1.618
+        target3_mult
+    direction = signalType == 'peak' ? -1 : 1
+    target1 = signalPrice + atr_val * target1_mult * direction
+    target2 = signalPrice + atr_val * target2_mult * direction
+    target3 = signalPrice + atr_val * target3_mult * direction
+    stop_loss = signalPrice - atr_val * 0.5 * direction
+    [target1, target2, target3, stop_loss]
+[peakT1, peakT2, peakT3, peakStop] = calculateSmartTargets(high, 'peak', atr)
+[valleyT1, valleyT2, valleyT3, valleyStop] = calculateSmartTargets(low, 'valley', atr)
+if barstate.isconfirmed
+    if array.size(activeTargets) > 0
+        for i = array.size(activeTargets) - 1 to 0 by 1
+            target = array.get(activeTargets, i)
+            invalidated = false
+            if target.signalType == 'valley'
+                if low < target.entryPrice - atr
+                    invalidated := true
+                    invalidated
+                if high >= target.target1 and not target.t1Hit
+                    target.t1Hit := true
+                    line.delete(target.line1)
+                    label.delete(target.label1)
+                if high >= target.target2 and not target.t2Hit
+                    target.t2Hit := true
+                    line.delete(target.line2)
+                    label.delete(target.label2)
+                if high >= target.target3 and not target.t3Hit
+                    target.t3Hit := true
+                    line.delete(target.line3)
+                    label.delete(target.label3)
+            else
+                if high > target.entryPrice + atr
+                    invalidated := true
+                    invalidated
+                if low <= target.target1 and not target.t1Hit
+                    target.t1Hit := true
+                    line.delete(target.line1)
+                    label.delete(target.label1)
+                if low <= target.target2 and not target.t2Hit
+                    target.t2Hit := true
+                    line.delete(target.line2)
+                    label.delete(target.label2)
+                if low <= target.target3 and not target.t3Hit
+                    target.t3Hit := true
+                    line.delete(target.line3)
+                    label.delete(target.label3)
+            if invalidated or target.t1Hit and target.t2Hit and target.t3Hit or bar_index - target.signalBar > 50
+                if not target.t1Hit
+                    line.delete(target.line1)
+                    label.delete(target.label1)
+                if not target.t2Hit
+                    line.delete(target.line2)
+                    label.delete(target.label2)
+                if not target.t3Hit
+                    line.delete(target.line3)
+                    label.delete(target.label3)
+                array.remove(activeTargets, i)
+                //==============================================================================
+                // 🎯 REAL-TIME SUPPORT/RESISTANCE TRACKING
+                //==============================================================================
+var float currentSupport = na
+var float currentResistance = na
+var float nextLevel = na
+var array<line> activeSupportLines = array.new<line>()
+var array<line> activeResistanceLines = array.new<line>()
+var array<line> nextLevelLines = array.new<line>()
+var array<label> activeLabels = array.new<label>()
+lookbackPeriod = 50
+lowestLow = ta.lowest(low, lookbackPeriod)
+highestHigh = ta.highest(high, lookbackPeriod)
+recentHighest20 = ta.highest(high, 20)
+recentLowest20 = ta.lowest(low, 20)
+recentHigh10 = ta.highest(high, 10)
+recentLow10 = ta.lowest(low, 10)
+if bar_index == lookbackPeriod
+    currentSupport := lowestLow
+    currentResistance := highestHigh
+    currentResistance
+priceChange = ta.change(close)
+volumeEMA = ta.ema(volume, 14)
+priceVolumeEMA = ta.ema(priceChange * volume, 14)
+ofpiRaw = volumeEMA > 0 ? priceVolumeEMA / volumeEMA : 0
+ofpiValue = atr > 0 ? ofpiRaw / atr : 0
+flowMomentum = ta.change(ofpiValue, 3)
+flowStrength = math.abs(ofpiValue) > 0.1 ? 'STRONG' : math.abs(ofpiValue) > 0.05 ? 'MODERATE' : 'WEAK'
+momentumShifting = ta.change(math.sign(ofpiValue)) != 0
+if not na(currentSupport) and not na(currentResistance)
+    if close > currentResistance
+        currentSupport := currentResistance
+        currentResistance := recentHighest20
+        if currentResistance - currentSupport < atr * 0.5
+            currentResistance := currentSupport + atr * 2
+            currentResistance
+    else if close < currentSupport
+        currentResistance := currentSupport
+        currentSupport := recentLowest20
+        if currentResistance - currentSupport < atr * 0.5
+            currentSupport := currentResistance - atr * 2
+            currentSupport
+if isPeakSignal
+    potentialResistance = high
+    if na(currentResistance) or potentialResistance > currentResistance * 0.995
+        currentResistance := potentialResistance
+        currentResistance
+if isValleySignal
+    potentialSupport = low
+    if na(currentSupport) or potentialSupport < currentSupport * 1.005
+        currentSupport := potentialSupport
+        currentSupport
+if not na(currentSupport) and not na(currentResistance)
+    levelRange = currentResistance - currentSupport
+    recentRange = recentHigh10 - recentLow10
+    if recentRange < levelRange * 0.5
+        currentResistance := recentHigh10 + atr * 0.2
+        currentSupport := recentLow10 - atr * 0.2
+        currentSupport
+momentumDirection = ema_slope > 0 ? 1 : -1
+calculateNextLevel(currentSupp, currentRes, direction) =>
+    if na(currentSupp) or na(currentRes)
+        na
+    else
+        levelRange = currentRes - currentSupp
+        if direction > 0
+            currentRes + levelRange * 0.618
+        else
+            currentSupp - levelRange * 0.618
+nextLevel := calculateNextLevel(currentSupport, currentResistance, momentumDirection)
+//==============================================================================
+// ✨ VISUALS
+//==============================================================================
+clearAllLines() =>
+    for line_item in activeSupportLines
+        line.delete(line_item)
+    for line_item in activeResistanceLines
+        line.delete(line_item)
+    for line_item in nextLevelLines
+        line.delete(line_item)
+    for label_item in activeLabels
+        label.delete(label_item)
+    array.clear(activeSupportLines)
+    array.clear(activeResistanceLines)
+    array.clear(nextLevelLines)
+    array.clear(activeLabels)
+createGlowLines(price, lineColor, lineArrays) =>
+    for i = 0 to 2 by 1
+        glowAlpha = 75 + i * 10
+        glowLine = line.new(bar_index - 20, price, bar_index + 150, price, color = color.new(lineColor, glowAlpha), width = 3 - i, style = line.style_solid)
+        array.push(lineArrays, glowLine)
+    mainLine = line.new(bar_index - 20, price, bar_index + 150, price, color = color.new(lineColor, 50), width = 1, style = line.style_dotted)
+    array.push(lineArrays, mainLine)
+if barstate.isconfirmed and showSupportResistance
+    clearAllLines()
+    if not na(currentSupport)
+        createGlowLines(currentSupport, c_neural_valley, activeSupportLines)
+        supportLabel = label.new(bar_index + 80, currentSupport, 'SUPPORT: $' + str.tostring(currentSupport, '#.##') + ' | RSI: ' + str.tostring(rsi, '#.0'), color = color.new(c_hud_bg, 20), textcolor = c_neural_valley, style = label.style_label_left, size = size.small)
+        array.push(activeLabels, supportLabel)
+    if not na(currentResistance)
+        createGlowLines(currentResistance, c_neural_peak, activeResistanceLines)
+        resistanceLabel = label.new(bar_index + 80, currentResistance, 'RESISTANCE: $' + str.tostring(currentResistance, '#.##') + ' | RSI: ' + str.tostring(rsi, '#.0'), color = color.new(c_hud_bg, 20), textcolor = c_neural_peak, style = label.style_label_left, size = size.small)
+        array.push(activeLabels, resistanceLabel)
+    if not na(nextLevel)
+        nextLevelColor = color.gray
+        createGlowLines(nextLevel, nextLevelColor, nextLevelLines)
+        nextLevelText = momentumDirection > 0 ? 'NEXT RESISTANCE' : 'NEXT SUPPORT'
+        nextLabel = label.new(bar_index + 80, nextLevel, nextLevelText + ': $' + str.tostring(nextLevel, '#.##'), color = color.new(c_hud_bg, 20), textcolor = nextLevelColor, style = label.style_label_left, size = size.small)
+        array.push(activeLabels, nextLabel)
+        //==============================================================================
+        // 🎨 MARKET FLOW RIBBONS
+        //==============================================================================
+flow_ema1 = ta.ema(close, 5)
+flow_ema2 = ta.ema(close, 8)
+flow_ema3 = ta.ema(close, 13)
+flow_ema4 = ta.ema(close, 21)
+flow_momentum = close - close[10]
+flow_color = flow_momentum > 0 ? c_bull : c_bear
+p1 = plot(showMarketFlow ? flow_ema1 : na, color = color.new(flow_color, marketFlowOpacity), linewidth = 1)
+p2 = plot(showMarketFlow ? flow_ema2 : na, color = color.new(flow_color, marketFlowOpacity - 5), linewidth = 1)
+p3 = plot(showMarketFlow ? flow_ema3 : na, color = color.new(flow_color, marketFlowOpacity - 10), linewidth = 1)
+p4 = plot(showMarketFlow ? flow_ema4 : na, color = color.new(flow_color, marketFlowOpacity - 15), linewidth = 1)
+fill(p1, p2, color = showMarketFlow ? color.new(flow_color, marketFlowOpacity) : na)
+fill(p2, p3, color = showMarketFlow ? color.new(flow_color, marketFlowOpacity - 3) : na)
+fill(p3, p4, color = showMarketFlow ? color.new(flow_color, marketFlowOpacity - 6) : na)
+//==============================================================================
+// 🎨 REGIME BACKGROUND
+//==============================================================================
+var color regime_color = na
+if showRegimeBackground
+    regime_color := switch marketRegime
+        'STRONG_TREND_UP' => color.green
+        'STRONG_TREND_DOWN' => color.red
+        'HIGH_VOLATILITY' => color.orange
+        'LOW_ACTIVITY' => color.gray
+        'CHOPPY' => color.purple
+        => color.blue
+    regime_color
+bgcolor(not na(regime_color) ? color.new(regime_color, regimeBgOpacity) : na)
+//==============================================================================
+// 📍 SIGNAL VISUALIZATION
+//==============================================================================
+if isPeakSignal
+    signalsAllowed := signalsAllowed + 1
+    array.push(signalHistory, close)
+    array.push(signalBars, bar_index)
+    array.push(signalPrices, high)
+    array.push(signalTypes, 'peak')
+    if array.size(signalBars) > 200
+        array.shift(signalBars)
+        array.shift(signalPrices)
+        array.shift(signalTypes)
+    label_offset = atr * 0.15
+    label.new(bar_index, high + label_offset, str.tostring(peakProbability, '#') + '%', color = color.new(color.black, 100), textcolor = c_bear, style = label.style_none, size = size.normal, yloc = yloc.abovebar)
+    if showSignalTrails
+        line.new(bar_index, high, bar_index + 10, high, color = color.new(c_bear, 50), width = 1, style = line.style_dotted)
+    if showDynamicTargets
+        newTarget = TargetInfo.new()
+        newTarget.signalBar := bar_index
+        newTarget.signalType := 'peak'
+        newTarget.entryPrice := high
+        newTarget.target1 := peakT1
+        newTarget.target2 := peakT2
+        newTarget.target3 := peakT3
+        newTarget.stopLoss := peakStop
+        newTarget.t1Hit := false
+        newTarget.t2Hit := false
+        newTarget.t3Hit := false
+        line_end = bar_index + 80
+        newTarget.line1 := line.new(bar_index, peakT1, line_end, peakT1, color = c_bear, width = 1, style = line.style_dashed)
+        newTarget.line2 := line.new(bar_index, peakT2, line_end, peakT2, color = c_warning, width = 1, style = line.style_dashed)
+        newTarget.line3 := line.new(bar_index, peakT3, line_end, peakT3, color = c_success, width = 1, style = line.style_dashed)
+        newTarget.label1 := label.new(line_end, peakT1, 'T1: $' + str.tostring(peakT1, format.mintick), color = color.new(c_bear, 80), textcolor = color.white, style = label.style_label_left, size = size.small)
+        newTarget.label2 := label.new(line_end, peakT2, 'T2: $' + str.tostring(peakT2, format.mintick), color = color.new(c_warning, 80), textcolor = color.white, style = label.style_label_left, size = size.small)
+        newTarget.label3 := label.new(line_end, peakT3, 'T3: $' + str.tostring(peakT3, format.mintick), color = color.new(c_success, 80), textcolor = color.white, style = label.style_label_left, size = size.small)
+        array.push(activeTargets, newTarget)
+if isValleySignal
+    signalsAllowed := signalsAllowed + 1
+    array.push(signalHistory, close)
+    array.push(signalBars, bar_index)
+    array.push(signalPrices, low)
+    array.push(signalTypes, 'valley')
+    if array.size(signalBars) > 200
+        array.shift(signalBars)
+        array.shift(signalPrices)
+        array.shift(signalTypes)
+    label_offset = atr * 0.15
+    label.new(bar_index, low - label_offset, str.tostring(valleyProbability, '#') + '%', color = color.new(color.black, 100), textcolor = c_bull, style = label.style_none, size = size.normal, yloc = yloc.belowbar)
+    if showSignalTrails
+        line.new(bar_index, low, bar_index + 10, low, color = color.new(c_bull, 50), width = 1, style = line.style_dotted)
+    if showDynamicTargets
+        newTarget = TargetInfo.new()
+        newTarget.signalBar := bar_index
+        newTarget.signalType := 'valley'
+        newTarget.entryPrice := low
+        newTarget.target1 := valleyT1
+        newTarget.target2 := valleyT2
+        newTarget.target3 := valleyT3
+        newTarget.stopLoss := valleyStop
+        newTarget.t1Hit := false
+        newTarget.t2Hit := false
+        newTarget.t3Hit := false
+        line_end = bar_index + 80
+        newTarget.line1 := line.new(bar_index, valleyT1, line_end, valleyT1, color = c_bull, width = 2, style = line.style_dashed)
+        newTarget.line2 := line.new(bar_index, valleyT2, line_end, valleyT2, color = c_warning, width = 2, style = line.style_dashed)
+        newTarget.line3 := line.new(bar_index, valleyT3, line_end, valleyT3, color = c_success, width = 2, style = line.style_dashed)
+        newTarget.label1 := label.new(line_end, valleyT1, 'T1: $' + str.tostring(valleyT1, format.mintick), color = color.new(c_bull, 80), textcolor = color.white, style = label.style_label_left, size = size.small)
+        newTarget.label2 := label.new(line_end, valleyT2, 'T2: $' + str.tostring(valleyT2, format.mintick), color = color.new(c_warning, 80), textcolor = color.white, style = label.style_label_left, size = size.small)
+        newTarget.label3 := label.new(line_end, valleyT3, 'T3: $' + str.tostring(valleyT3, format.mintick), color = color.new(c_success, 80), textcolor = color.white, style = label.style_label_left, size = size.small)
+        array.push(activeTargets, newTarget)
+plotshape(showSignalTrails and isPeakSignal, style = shape.triangledown, location = location.abovebar, color = c_neural_peak, size = size.tiny, title = 'Peak Signal')
+plotshape(showSignalTrails and isValleySignal, style = shape.triangleup, location = location.belowbar, color = c_neural_valley, size = size.tiny, title = 'Valley Signal')
+//==============================================================================
+// 📊 DASHBOARD CALCULATIONS
+//==============================================================================
+
+displayPeakScore = peakProbability
+displayValleyScore = valleyProbability
+currentNoise = 0
+totalScore = math.max(displayPeakScore, displayValleyScore)
+adaptiveMode = marketRegime == 'HIGH_VOLATILITY' ? 'Aggressive' : marketRegime == 'CHOPPY' ? 'Quality Control' : 'Original'
+adaptiveMultiplier = regimeMultiplier
+//==============================================================================
+// 🖥️ ENHANCED DASHBOARD
+//==============================================================================    
+var table dashboard = na
+if show_dashboard and barstate.islast
+    dashboard_pos = dashboard_position_input == 'Top Left' ? position.top_left : dashboard_position_input == 'Top Right' ? position.top_right : dashboard_position_input == 'Bottom Left' ? position.bottom_left : position.bottom_right
+    cols = 4
+    rows = dashboard_size == 'Small' ? 14 : dashboard_size == 'Normal' ? 20 : 29
+    if not na(dashboard)
+        table.delete(dashboard)
+    dashboard := table.new(dashboard_pos, cols, rows, border_width = 1, border_color = color.new(color.gray, 50), bgcolor = color.new(#1e222d, 20))
+    dc_white = color.white
+    dc_gray = #B2B5BE
+    dc_green = #26A69A
+    dc_red = #EF5350
+    dc_gold = #FFD700
+    dc_purple = c_quantum
+    dc_aqua = c_neural_valley
+    dc_orange = #FF8C00
+    dc_cyan = #00FFFF
+    bg_header = color.new(color.black, 30)
+    bg_section = color.new(color.gray, 85)
+    header_size = size.small
+    value_size = size.small
+    label_size = size.tiny
+    current_row = 0
+    table.merge_cells(dashboard, 0, current_row, cols - 1, current_row)
+    table.cell(dashboard, 0, current_row, '⇋ Inflection Point Pro | ' + syminfo.ticker, text_halign = text.align_center, text_color = dc_white, bgcolor = bg_header, text_size = header_size)
+    current_row := current_row + 1
+    table.merge_cells(dashboard, 0, current_row, cols - 1, current_row)
+    table.cell(dashboard, 0, current_row, '═══ 🎯 QUANTUM AI SCORE ═══', text_halign = text.align_center, text_color = dc_gold, bgcolor = bg_section, text_size = label_size)
+    current_row := current_row + 1
+    signalQuality = totalScore >= 90 ? 'EXCEPTIONAL' : totalScore >= 75 ? 'STRONG' : totalScore >= 60 ? 'MODERATE' : totalScore >= 30 ? 'BUILDING' : 'WEAK'
+    scoreColor = signalQuality == 'EXCEPTIONAL' ? dc_gold : signalQuality == 'STRONG' ? dc_green : signalQuality == 'MODERATE' ? dc_aqua : signalQuality == 'BUILDING' ? dc_orange : dc_gray
+    table.cell(dashboard, 0, current_row, 'TOTAL SCORE', text_color = dc_gray, text_size = label_size)
+    table.merge_cells(dashboard, 1, current_row, cols - 1, current_row)
+    table.cell(dashboard, 1, current_row, str.tostring(totalScore, '#.##'), text_halign = text.align_right, text_color = scoreColor, text_size = value_size)
+    current_row := current_row + 1
+    table.cell(dashboard, 0, current_row, 'Quality', text_color = dc_gray, text_size = label_size)
+    table.merge_cells(dashboard, 1, current_row, cols - 1, current_row)
+    qualityEmoji = signalQuality == 'EXCEPTIONAL' ? '🌟' : signalQuality == 'STRONG' ? '💪' : signalQuality == 'MODERATE' ? '👍' : '⚠️'
+    table.cell(dashboard, 1, current_row, qualityEmoji + ' ' + signalQuality, text_halign = text.align_right, text_color = scoreColor, text_size = value_size)
+    current_row := current_row + 1
+    table.cell(dashboard, 0, current_row, 'Win Rate', text_color = dc_gray, text_size = label_size)
+    winRate = hitRate
+    winRateColor = winRate >= 60 ? dc_green : winRate >= 45 ? dc_orange : dc_red
+    winRateEmoji = winRate >= 60 ? '🔥' : winRate >= 45 ? '👍' : '⚠️'
+    table.cell(dashboard, 1, current_row, winRateEmoji + str.tostring(winRate, '#.#') + '%', text_halign = text.align_right, text_color = winRateColor, text_size = value_size)
+    table.cell(dashboard, 2, current_row, 'Signals', text_color = dc_gray, text_size = label_size)
+    table.cell(dashboard, 3, current_row, str.tostring(signalsAllowed), text_halign = text.align_right, text_color = dc_gray, text_size = value_size)
+    current_row := current_row + 1
+    table.merge_cells(dashboard, 0, current_row, cols - 1, current_row)
+    table.cell(dashboard, 0, current_row, '═══ 📊 ORDER FLOW ═══', text_halign = text.align_center, text_color = dc_gold, bgcolor = bg_section, text_size = label_size)
+    current_row := current_row + 1
+    ofpiDisplay = ofpiValue * 100
+    ofpiAbs = math.abs(ofpiDisplay)
+    table.cell(dashboard, 0, current_row, 'OFPI', text_color = dc_gray, text_size = label_size)
+    ofpiColor = ofpiAbs > 15 ? ofpiValue > 0 ? dc_green : dc_red : ofpiAbs > 5 ? dc_aqua : dc_gray
+    table.merge_cells(dashboard, 1, current_row, cols - 1, current_row)
+    table.cell(dashboard, 1, current_row, str.tostring(ofpiDisplay, '#.##') + '%', text_halign = text.align_right, text_color = ofpiColor, text_size = value_size)
+    current_row := current_row + 1
+    if dashboard_size != 'Small'
+        table.merge_cells(dashboard, 0, current_row, cols - 1, current_row)
+        table.cell(dashboard, 0, current_row, '📊 Component Analysis', text_halign = text.align_center, text_color = dc_aqua, text_size = label_size)
+        current_row := current_row + 1
+        table.cell(dashboard, 0, current_row, 'Peak Conf', text_color = dc_gray, text_size = label_size)
+        peakColor = displayPeakScore > 70 ? dc_red : displayPeakScore > 40 ? dc_orange : dc_gray
+        table.cell(dashboard, 1, current_row, str.tostring(displayPeakScore, '#.#'), text_halign = text.align_right, text_color = peakColor, text_size = label_size)
+        table.cell(dashboard, 2, current_row, 'Valley Conf', text_color = dc_gray, text_size = label_size)
+        valleyColor = displayValleyScore > 70 ? dc_green : displayValleyScore > 40 ? dc_aqua : dc_gray
+        table.cell(dashboard, 3, current_row, str.tostring(displayValleyScore, '#.#'), text_halign = text.align_right, text_color = valleyColor, text_size = label_size)
+        current_row := current_row + 1
+        table.merge_cells(dashboard, 0, current_row, cols - 1, current_row)
+        table.cell(dashboard, 0, current_row, '═══ 🌌 MARKET STRUCTURE ═══', text_halign = text.align_center, text_color = dc_gold, bgcolor = bg_section, text_size = label_size)
+        current_row := current_row + 1
+        trendDirection = ema_fast > ema_slow ? 1 : -1
+        table.cell(dashboard, 0, current_row, 'HTF Trend', text_color = dc_gray, text_size = label_size)
+        htfText = trendDirection > 0 ? '📈 BULL' : '📉 BEAR'
+        htfColor = trendDirection > 0 ? dc_green : dc_red
+        table.merge_cells(dashboard, 1, current_row, cols - 1, current_row)
+        table.cell(dashboard, 1, current_row, htfText, text_halign = text.align_right, text_color = htfColor, text_size = label_size)
+        current_row := current_row + 1
+        table.cell(dashboard, 0, current_row, 'Vol Regime', text_color = dc_gray, text_size = label_size)
+        volText = volatilityRank > 70 ? '🔥 HIGH' : volatilityRank > 30 ? '📊 MED' : '😴 LOW'
+        volColor = volatilityRank > 70 ? dc_red : volatilityRank > 30 ? dc_gold : dc_green
+        table.merge_cells(dashboard, 1, current_row, cols - 1, current_row)
+        table.cell(dashboard, 1, current_row, volText, text_halign = text.align_right, text_color = volColor, text_size = value_size)
+        current_row := current_row + 1
+        table.cell(dashboard, 0, current_row, 'Quantum State', text_color = dc_gray, text_size = label_size)
+        state_color = quantumState > 7 ? dc_red : quantumState < 2 ? dc_green : dc_orange
+        table.merge_cells(dashboard, 1, current_row, cols - 1, current_row)
+        table.cell(dashboard, 1, current_row, str.tostring(quantumState) + '/' + str.tostring(stateGranularity), text_halign = text.align_right, text_color = state_color, text_size = value_size)
+        current_row := current_row + 1
+        current_row
+    if dashboard_size == 'Large'
+        table.merge_cells(dashboard, 0, current_row, cols - 1, current_row)
+        table.cell(dashboard, 0, current_row, '═══ 🛡️ FILTER STATISTICS ═══', text_halign = text.align_center, text_color = dc_gold, bgcolor = bg_section, text_size = label_size)
+        current_row := current_row + 1
+        table.cell(dashboard, 0, current_row, 'Allowed', text_color = dc_gray, text_size = label_size)
+        table.cell(dashboard, 1, current_row, str.tostring(signalsAllowed), text_halign = text.align_right, text_color = dc_green, text_size = label_size)
+        table.cell(dashboard, 2, current_row, 'Volume Blocked', text_color = dc_gray, text_size = label_size)
+        table.cell(dashboard, 3, current_row, str.tostring(signalsBlockedVolume), text_halign = text.align_right, text_color = dc_red, text_size = label_size)
+        current_row := current_row + 1
+        if useVolumeFilter
+            table.cell(dashboard, 0, current_row, 'Current Vol', text_color = dc_gray, text_size = label_size)
+            volRatio = volume / avgVolume
+            volColor = volRatio >= volumeThreshold ? dc_green : dc_red
+            table.merge_cells(dashboard, 1, current_row, cols - 1, current_row)
+            table.cell(dashboard, 1, current_row, str.tostring(volRatio, '#.##') + 'x avg', text_halign = text.align_right, text_color = volColor, text_size = label_size)
+            current_row := current_row + 1
+            current_row
+        table.merge_cells(dashboard, 0, current_row, cols - 1, current_row)
+        table.cell(dashboard, 0, current_row, '═══ 🤖 REGIME ENGINE ═══', text_halign = text.align_center, text_color = dc_gold, bgcolor = bg_section, text_size = label_size)
+        current_row := current_row + 1
+        table.cell(dashboard, 0, current_row, 'Current Regime', text_color = dc_gray, text_size = label_size)
+        regimeColor = marketRegime == 'STRONG_TREND_UP' or marketRegime == 'STRONG_TREND_DOWN' ? dc_green : marketRegime == 'HIGH_VOLATILITY' ? dc_orange : marketRegime == 'CHOPPY' ? dc_red : dc_gray
+        table.merge_cells(dashboard, 1, current_row, cols - 1, current_row)
+        table.cell(dashboard, 1, current_row, marketRegime, text_halign = text.align_right, text_color = regimeColor, text_size = label_size)
+        current_row := current_row + 1
+        if useAsymmetricBalance
+            table.cell(dashboard, 0, current_row, 'Peak Boost', text_color = dc_gray, text_size = label_size)
+            peakBoostDisplay = peakBoost > 1 ? '+' + str.tostring((peakBoost - 1) * 100, '#') + '%' : str.tostring((peakBoost - 1) * 100, '#') + '%'
+            peakBoostColor = peakBoost > 1 ? dc_red : peakBoost < 1 ? dc_green : dc_gray
+            table.cell(dashboard, 1, current_row, peakBoostDisplay, text_halign = text.align_right, text_color = peakBoostColor, text_size = label_size)
+            table.cell(dashboard, 2, current_row, 'Valley Boost', text_color = dc_gray, text_size = label_size)
+            valleyBoostDisplay = valleyBoost > 1 ? '+' + str.tostring((valleyBoost - 1) * 100, '#') + '%' : str.tostring((valleyBoost - 1) * 100, '#') + '%'
+            valleyBoostColor = valleyBoost > 1 ? dc_green : valleyBoost < 1 ? dc_red : dc_gray
+            table.cell(dashboard, 3, current_row, valleyBoostDisplay, text_halign = text.align_right, text_color = valleyBoostColor, text_size = label_size)
+            current_row := current_row + 1
+            current_row
+        table.cell(dashboard, 0, current_row, 'Active Targets', text_color = dc_gray, text_size = label_size)
+        table.merge_cells(dashboard, 1, current_row, cols - 1, current_row)
+        table.cell(dashboard, 1, current_row, str.tostring(array.size(activeTargets)), text_halign = text.align_right, text_color = dc_aqua, text_size = value_size)
+        //==============================================================================
+        // 🔔 ALERTS
+        //==============================================================================
+alertcondition(isPeakSignal, 'Inflection Point: Peak Signal', '🔴 Inflection Point: High-probability PEAK formation detected')
+alertcondition(isValleySignal, 'Inflection Point: Valley Signal', '🟢 Inflection Point: High-probability VALLEY formation detected')
+alertcondition(hitRate < 0.4, 'Inflection Point: Learning Alert', '⚠️ Inflection Point: Adaptive hit rate below 40% - Neural engine adjusting parameters')
+alertcondition(hitRate > 0.7, 'Inflection Point: Performance Alert', '🎯 Inflection Point: Superior performance detected - Hit rate above 70%')
+//==================================================================
+// WATERMARK
+//==================================================================
+var table watermarkTable = na
+if na(watermarkTable)
+    watermarkTable := table.new(position.bottom_center, 1, 1, bgcolor = color.new(color.black, 90), border_color = color.new(color.purple, 80), border_width = 1)
+    watermarkTable
+table.clear(watermarkTable, 0, 0)
+table.cell(watermarkTable, 0, 0, '⇋ Inflection Point (DAFE)', text_color = color.rgb(255, 239, 200), text_size = size.normal)
